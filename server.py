@@ -1,7 +1,7 @@
 "this is a cansat telemetry simulation program designed to simulate how a cansat sends data, to the g  station for visualization and storage. It is used to unders\tand how to visualize and store data properly"
-client_queues = set()
+
 import time, math
-import json
+
 import asyncio
 import websockets
 import datetime
@@ -27,8 +27,7 @@ start = time.time()
 
 """ i created a synchronous data streaming function to broadcast data telemetry data from from the server"""
 
-def sensor_simulator(height_per_cycle):
-    time.sleep(interval) 
+def sensor_simulator(height_per_cycle, time_stamp):
     global count
     count += 1
     now = time.time()
@@ -42,21 +41,21 @@ def sensor_simulator(height_per_cycle):
     telemetry["gps lattitude"] = aligned(-30000, 30000)
     telemetry["gps longitude"] = aligned(-30000, 30000)
     telemetry["gyro"] = [aligned(0, 1000), aligned(0, 1000), aligned(0, 1000)]
-    telemetry["timestamp"] =int( (now - start)*10000)
+    telemetry["timestamp"] =time_stamp
     telemetry["lux"] =aligned(0, 999)
     telemetry["current"] =aligned(0, 9999) 
     return telemetry
 
-tele_list =[sensor_simulator(height_per_cycle).copy() for x in range(0, max_altitude) if telemetry["altitude"]/1000 < max_altitude]
+tele_list =[sensor_simulator(height_per_cycle, x).copy() for x in range(0, max_altitude) if telemetry["altitude"]/1000 < max_altitude]
 print(tele_list)
 bin_data_list =[ pack("< I i i i h H B h h h h h h h h h ", telemetry["timestamp"],telemetry["gps lattitude"],telemetry["gps longitude"], telemetry["altitude"], telemetry["temperature"],telemetry["pressure"], telemetry["humidity"],telemetry["lux"], telemetry["acceleration"][0], telemetry["acceleration"][1],telemetry["acceleration"][2], telemetry["gyro"][0],telemetry["gyro"][1], telemetry["gyro"][2], telemetry["voltage"],telemetry["current"]) for telemetry in tele_list]
 """
 Note:
     I=> unsigned 32 bit integer
-    H=> unsigned 32 bit integer
+    H=> unsigned 16 bit integer
     B=> unsigned Unsigned 8 bit integer 
     the small letters correspond to the signed integer variants of the capital letters,
-    eg h = unsigned 16 bit integer
+    eg h = signed 16 bit integer
     also, most of the print() functions are for debugging
 """
 
@@ -64,7 +63,7 @@ Note:
 async def relay(queue, websocket):
     try:
         while True:
-            message = await queue.get_nowait()
+            message = await queue.get()
             print(message, "relay")
             await websocket.send(message)
     except asyncio.CancelledError:
@@ -81,7 +80,7 @@ async def stream_data(websocket):
         next_time  = time.perf_counter()
         print("next time = ", next_time)
         if next_time >= now:""" 
-    queue = asyncio.Queue()
+    queue = asyncio.Queue(maxsize = 64)
     print("stream data 1")
     relay_task = asyncio.create_task(relay(queue, websocket))
     print("sd2")
@@ -103,7 +102,7 @@ async def broadcast_packet(packet: bytes):
     """send one telemetry packet to all clients"""
     for queue in CLIENTS:
         print("sd6")
-        await queue.put_nowait(packet)
+        queue.put_nowait(packet)
 
 async def telemetry_stream(bin_data_list):
     for packet in bin_data_list:
