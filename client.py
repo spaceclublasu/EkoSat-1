@@ -35,16 +35,18 @@ async def database_writer(conn):
             GYRO_X, GYRO_Y, GYRO_Z, VOLTAGE, CURRENT
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17);
     """
-    
+    Batch_size = 20
+    batch = []
     try:
         while True:
-            data_frame = await decode_queue.get()
+            data_frame = await Decode_queue.get()
+            batch.append(data_frame)
             try:
-                await conn.execute(insert_query, *data_frame)
+                await conn.executemany(insert_query, *data_frame)
             except Exception as db_err:
                 print(f"Database insertion failed: {db_err}")
             finally:
-                decode_queue.task_done()
+                Decode_queue.task_done()
     except asyncio.CancelledError:
         print("Database writer stopped.")
 
