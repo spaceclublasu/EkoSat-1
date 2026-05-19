@@ -1,32 +1,40 @@
 #!/usr/bin/env python
 
-"""Client using the asyncio API."""
-"""interval = float(input(" specify data transmission interval e.g 1.02 means 1.02Hz "))
-max_altitude = float(input("specify maximum altitude e.g 1000 means 1km"))
-speed  = float(input("specify ascent speed"))
-"""
-import asyncpg
+import asyncio
 import struct
-from asyncio import Queue
+import asyncpg
 from websockets.asyncio.client import connect
 
-Decode_queue = Queue()
-async def data_receiver():
-    try async with connect("ws://localhost:4443") as websocket:
-        #message = await websocket.recv()
-       # await websocket.send(json.dumps([interval, max_altitude, speed]))
-        async for message in websocket:
-            decoded = struct.unpack("< I i i i h H B H h h h h h h H H ", message)
-            print(decoded)
-        Decode_queue.put_nowait(decoded)
-    except asyncio.CancelledError:
-        print("Data receiver stopped")
-    except Exception as e:
-        print(f"This exception occured: {e}")
+# 1. Bounded queue ensures memory never grows infinitely if DB falls behind
+decode_queue = asyncio.Queue(maxsize=500)
 
+async def data_receiver():
+    print("[Receiver] Starting WebSocket listener...")
+    try:
+        # Fixed syntax error: 'try' must be on its own line
+        async with connect("ws://localhost:4443") as websocket:
+            async for message in websocket:
+                decoded = struct.unpack("< I i i i h H B H h h h h h h H H ", message)
+                
+                # Real-time Drop Policy: If queue is full (DB is slow), 
+                # drop the oldest frame to make room for the newest telemetry.
+                if decode_queue.full():
+                    try:
+                        decode_queue.get_nowait()
+                        decode_queue.task_done()
+                    except asyncio.QueueEmpty:
+                        pass
+                
+                # Fixed: Moved inside the loop so EVERY frame gets queued
+                decode_queue.put_nowait(decoded)
+                
+    except asyncio.CancelledError:
+        print("[Receiver] Data receiver stopped safely.")
+    except Exception as e:
+        print(f"[Receiver] Exception occurred: {e}")
 
 async def database_writer(conn):
-    print("starting database saver")
+    print("[Writer] Starting database saver...")
     insert_query = """
         INSERT INTO TELEMETRY (
             TIMESTAMP, HUMIDITY, GPS_LATITUDE, GPS_LONGITUDE, ALTITUDE, 
@@ -35,26 +43,65 @@ async def database_writer(conn):
             GYRO_X, GYRO_Y, GYRO_Z, VOLTAGE, CURRENT
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17);
     """
-    Batch_size = 20
-    batch = []
     try:
         while True:
-            data_frame = await Decode_queue.get()
-            batch.append(data_frame)
+            # If queue is empty, this line pauses the task automatically (0% CPU)
+            data_frame = await decode_queue.get()
             try:
-                await conn.executemany(insert_query, *data_frame)
+                await conn.execute(insert_query, *data_frame)
             except Exception as db_err:
-                print(f"Database insertion failed: {db_err}")
+                print(f"[Writer] Database insertion failed: {db_err}")
             finally:
-                Decode_queue.task_done()
+                decode_queue.task_done()
     except asyncio.CancelledError:
-        print("Database writer stopped.")
+        print("[Writer] Database writer stopped safely.")
 
 async def main():
-    conn = await asyncpg.connect('postgresql://postgres@localhost/Cansat')
-    await conn.execute(''' CREATE TABLE IF NOT EXISTS TELEMETRY(TIMESTAMP INT NOT NULL,HUMIDITY INT NOT NULL, GPS_LATTITUDE INT NOT NULL, GPS_LONGITUDE INT NOT NULL, ALTITUDE INT NOT NULL, TEMPERATURE INT NOT NULL,PRESSURE INT NOT NULL, HUMIDITY INT NOT NULL, LUMINOUS_INTENSITY INT NOT NULL,ACCELERATION_X INT NOT NULL, ACCELERATION_Y INT NOT NULL, ACCELERATION_Z INT NOT NULL,GYRO_X INT NOT NULL, GYRO_Y INT NOT NULL, GYRO_Z INT NOT NULL, VOLTAGE INT NOT NULL, CURRENT INT NOT NULL''')
-try:
-    asyncio.run(get_data())
-except KeyboardInterrupt:
-    print("\n connection closed\n")
+    # Establish Connection
+    conn = await asyncpg.create_pool(dsn= 'postgresql://postgres@localhost/Cansat',
+min_size =1,
+max_size=10
+                                     )
+async with pool.acquire() as conn:
+    conn.execute(''' 
+            CREATE TABLE IF NOT EXISTS TELEMETRY (
+                TIMESTAMP INT NOT NULL,
+                HUMIDITY INT NOT NULL, 
+                GPS_LATITUDE INT NOT NULL, 
+                GPS_LONGITUDE INT NOT NULL, 
+                ALTITUDE INT NOT NULL, 
+                TEMPERATURE INT NOT NULL,
+                PRESSURE INT NOT NULL, 
+                HUMIDITY_2 INT NOT NULL, 
+                LUMINOUS_INTENSITY INT NOT NULL,
+                ACCELERATION_X INT NOT NULL, 
+                ACCELERATION_Y INT NOT NULL, 
+                ACCELERATION_Z INT NOT NULL,
+                GYRO_X INT NOT NULL, 
+                GYRO_Y INT NOT NULL, 
+                GYRO_Z INT NOT NULL, 
+                VOLTAGE INT NOT NULL, 
+                CURRENT INT NOT NULL
+            );
+        ''')
 
+        print("[Main] Pipeline running concurrent workers. Press Ctrl+C to stop.")
+        
+        # Run both functions concurrently under the event loop
+        await asyncio.gather(
+            data_receiver(),
+            database_writer(conn)
+        )
+    except asyncio.CancelledError:
+        pass
+    finally:
+        print("[Main] Closing database connection...")
+        await conn.close()
+        print("[Main] Offline.")
+
+if __name__ == "__main__":
+    try:
+        # Fixed: call main() instead of the non-existent get_data()
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nConnection closed cleanly via user interrupt.\n")
