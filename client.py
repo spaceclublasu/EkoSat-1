@@ -30,24 +30,27 @@ async def data_receiver():
                 
     except asyncio.CancelledError:
         print("[Receiver] Data receiver stopped safely.")
-    except Exception as e:
-        print(f"[Receiver] Exception occurred: {e}")
+    except ConnectionRefusedError as e:
+        print(f"[Receiver] Exception occurred: {e}, automatic reconnection started")
+        asyncio.sleep(0.5)
+        await data_receiver()
 
 async def database_writer(conn):
     print("[Writer] Starting database saver...")
     insert_query = """
         INSERT INTO TELEMETRY (
-            TIMESTAMP, HUMIDITY, GPS_LATITUDE, GPS_LONGITUDE, ALTITUDE, 
-            TEMPERATURE, PRESSURE, HUMIDITY_2, LUMINOUS_INTENSITY, 
+            TIMESTAMP, GPS_LATITUDE, GPS_LONGITUDE, ALTITUDE, 
+            TEMPERATURE, PRESSURE, HUMIDITY, LUMINOUS_INTENSITY, 
             ACCELERATION_X, ACCELERATION_Y, ACCELERATION_Z, 
             GYRO_X, GYRO_Y, GYRO_Z, VOLTAGE, CURRENT
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17);
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16);
     """
     try:
         while True:
             # If queue is empty, this line pauses the task automatically (0% CPU)
             data_frame = await decode_queue.get()
             try:
+                print("data insertion into postgres db started")
                 await conn.execute(insert_query, *data_frame)
             except Exception as db_err:
                 print(f"[Writer] Database insertion failed: {db_err}")
@@ -58,21 +61,20 @@ async def database_writer(conn):
 
 async def main():
     # Establish Connection
-    conn = await asyncpg.create_pool(dsn= 'postgresql://postgres@localhost/Cansat',
+    conn = await asyncpg.create_pool(dsn= 'postgres://cansat:12345@localhost/cansat',
 min_size =1,
 max_size=10
                                      )
-async with pool.acquire() as conn:
-    conn.execute(''' 
+    async with conn.acquire() as conn_pool:
+        await conn_pool.execute(''' 
             CREATE TABLE IF NOT EXISTS TELEMETRY (
                 TIMESTAMP INT NOT NULL,
-                HUMIDITY INT NOT NULL, 
                 GPS_LATITUDE INT NOT NULL, 
                 GPS_LONGITUDE INT NOT NULL, 
                 ALTITUDE INT NOT NULL, 
                 TEMPERATURE INT NOT NULL,
                 PRESSURE INT NOT NULL, 
-                HUMIDITY_2 INT NOT NULL, 
+                HUMIDITY INT NOT NULL, 
                 LUMINOUS_INTENSITY INT NOT NULL,
                 ACCELERATION_X INT NOT NULL, 
                 ACCELERATION_Y INT NOT NULL, 
@@ -84,13 +86,13 @@ async with pool.acquire() as conn:
                 CURRENT INT NOT NULL
             );
         ''')
-
-        print("[Main] Pipeline running concurrent workers. Press Ctrl+C to stop.")
+    print("[Main] Pipeline running concurrent workers. Press Ctrl+C to stop.")
         
-        # Run both functions concurrently under the event loop
+    # Run both functions concurrently under the event loop
+    try:
         await asyncio.gather(
-            data_receiver(),
-            database_writer(conn)
+        data_receiver(),
+        database_writer(conn)
         )
     except asyncio.CancelledError:
         pass

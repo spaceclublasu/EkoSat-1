@@ -23,11 +23,11 @@ interval = float(1/frequency)
 max_altitude = int(input("specify maximum altitude e.g 1000 means 1km"))
 speed  = float(input("specify ascent speed e.g 5 means 5m/s"))
 height_per_cycle = int(float(speed/frequency) * 1000)
-start = time.time()
+start = time.time_ns()
 
 """ i created a synchronous data streaming function to broadcast data telemetry data from from the server"""
 
-def sensor_simulator(height_per_cycle, time_stamp):
+def sensor_simulator(height_per_cycle, relative_time):
     global count
     count += 1
     now = time.time()
@@ -41,12 +41,12 @@ def sensor_simulator(height_per_cycle, time_stamp):
     telemetry["gps lattitude"] = aligned(-30000, 30000)
     telemetry["gps longitude"] = aligned(-30000, 30000)
     telemetry["gyro"] = [aligned(0, 1000), aligned(0, 1000), aligned(0, 1000)]
-    telemetry["timestamp"] =time_stamp
+    telemetry["timestamp"] =int(time.time_ns()- relative_time)
     telemetry["lux"] =aligned(0, 999)
     telemetry["current"] =aligned(0, 9999) 
     return telemetry
 
-tele_list =[sensor_simulator(height_per_cycle, x).copy() for x in range(0, max_altitude) if telemetry["altitude"]/1000 < max_altitude]
+tele_list =[sensor_simulator(height_per_cycle, start).copy() for x in range(0, max_altitude) if telemetry["altitude"]/1000 < max_altitude]
 print(tele_list)
 bin_data_list =[ pack("< I i i i h H B h h h h h h h h h ", telemetry["timestamp"],telemetry["gps lattitude"],telemetry["gps longitude"], telemetry["altitude"], telemetry["temperature"],telemetry["pressure"], telemetry["humidity"],telemetry["lux"], telemetry["acceleration"][0], telemetry["acceleration"][1],telemetry["acceleration"][2], telemetry["gyro"][0],telemetry["gyro"][1], telemetry["gyro"][2], telemetry["voltage"],telemetry["current"]) for telemetry in tele_list]
 """
