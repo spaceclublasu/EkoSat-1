@@ -46,9 +46,9 @@ def sensor_simulator(height_per_cycle, relative_time):
     telemetry["current"] =aligned(0, 9999) 
     return telemetry
 
-tele_list =[sensor_simulator(height_per_cycle, start).copy() for x in range(0, max_altitude) if telemetry["altitude"]/1000 < max_altitude]
+tele_list =[sensor_simulator(height_per_cycle, start).copy() for x in range(0, int(max_altitude*1000)) if telemetry["altitude"]/1000 < max_altitude]
 print(tele_list)
-bin_data_list =[ pack("< I i i i h H B h h h h h h h h h ", telemetry["timestamp"],telemetry["gps lattitude"],telemetry["gps longitude"], telemetry["altitude"], telemetry["temperature"],telemetry["pressure"], telemetry["humidity"],telemetry["lux"], telemetry["acceleration"][0], telemetry["acceleration"][1],telemetry["acceleration"][2], telemetry["gyro"][0],telemetry["gyro"][1], telemetry["gyro"][2], telemetry["voltage"],telemetry["current"]) for telemetry in tele_list]
+bin_data_list =[ pack("< I i i i h H B H h h h h h h h h ", telemetry["timestamp"],telemetry["gps lattitude"],telemetry["gps longitude"], telemetry["altitude"], telemetry["temperature"],telemetry["pressure"], telemetry["humidity"],telemetry["lux"], telemetry["acceleration"][0], telemetry["acceleration"][1],telemetry["acceleration"][2], telemetry["gyro"][0],telemetry["gyro"][1], telemetry["gyro"][2], telemetry["voltage"],telemetry["current"]) for telemetry in tele_list]
 """
 Note:
     I=> unsigned 32 bit integer

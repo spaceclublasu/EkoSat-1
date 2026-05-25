@@ -1,39 +1,42 @@
 #!/usr/bin/env python
 
-import asyncio
+import asyncio, sys
 import struct
 import asyncpg
 from websockets.asyncio.client import connect
 
 # 1. Bounded queue ensures memory never grows infinitely if DB falls behind
 decode_queue = asyncio.Queue(maxsize=500)
-
-async def data_receiver():
-    print("[Receiver] Starting WebSocket listener...")
-    try:
-        # Fixed syntax error: 'try' must be on its own line
-        async with connect("ws://localhost:4443") as websocket:
-            async for message in websocket:
-                decoded = struct.unpack("< I i i i h H B H h h h h h h H H ", message)
-                
-                # Real-time Drop Policy: If queue is full (DB is slow), 
-                # drop the oldest frame to make room for the newest telemetry.
-                if decode_queue.full():
-                    try:
-                        decode_queue.get_nowait()
-                        decode_queue.task_done()
-                    except asyncio.QueueEmpty:
-                        pass
-                
-                # Fixed: Moved inside the loop so EVERY frame gets queued
-                decode_queue.put_nowait(decoded)
-                
-    except asyncio.CancelledError:
-        print("[Receiver] Data receiver stopped safely.")
-    except ConnectionRefusedError as e:
-        print(f"[Receiver] Exception occurred: {e}, automatic reconnection started")
-        asyncio.sleep(0.5)
-        await data_receiver()
+Reconnection_counter = 100
+async def data_receiver(Reconnection_counter):
+    while True:
+        print("[Receiver] Starting WebSocket listener...")
+        try:
+            # Fixed syntax error: 'try' must be on its own line
+            async with connect("ws://localhost:4443") as websocket:
+                async for message in websocket:
+                    decoded = struct.unpack("< I i i i h H B H h h h h h h H H ", message)
+                    # Real-time Drop Policy: If queue is full (DB is slow), 
+                    # drop the oldest frame to make room for the newest telemetry.
+                    if decode_queue.full():
+                        try:
+                            decode_queue.get_nowait()
+                            decode_queue.task_done()
+                        except asyncio.QueueEmpty:
+                            pass
+                    # Fixed: Moved inside the loop so EVERY frame gets queued
+                    decode_queue.put_nowait(decoded)
+        except asyncio.CancelledError:
+            print("[Receiver] Data receiver stopped safely.")
+        except ConnectionRefusedError as e:
+            Reconnection_counter = Reconnection_counter - 1
+            print(f"[Receiver] Exception occurred: {e}, automatic reconnection started, {Reconnection_counter} retries left")
+            await asyncio.sleep(0.5)
+            if Reconnection_counter == 0:
+                try:
+                    sys.exit(0)
+                except SystemExit:
+                    print("connection has been permanently terminated, press Ctrl+C to exit the program")
 
 async def database_writer(conn):
     print("[Writer] Starting database saver...")
@@ -91,10 +94,11 @@ max_size=10
     # Run both functions concurrently under the event loop
     try:
         await asyncio.gather(
-        data_receiver(),
+        data_receiver(Reconnection_counter),
         database_writer(conn)
         )
     except asyncio.CancelledError:
+        print(2345)
         pass
     finally:
         print("[Main] Closing database connection...")
