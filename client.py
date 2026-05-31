@@ -7,17 +7,19 @@ from websockets.asyncio.client import connect
 
 # 1. Bounded queue ensures memory never grows infinitely if DB falls behind
 decode_queue = asyncio.Queue(maxsize=500)
-Reconnection_counter = 100
-async def data_receiver(Reconnection_counter):
+Max_retries = 100
+async def data_receiver(Retries_left):
     while True:
         print("[Receiver] Starting WebSocket listener...")
         try:
             # Fixed syntax error: 'try' must be on its own line
             async with connect("ws://localhost:4443") as websocket:
+                Retries_left = Max_retries
                 async for message in websocket:
-                    decoded = struct.unpack("< I i i i h H B H h h h h h h H H ", message)
+                    decoded = struct.unpack("<H 2s I I i i h h H B H h h h h h h H H ", message)
                     # Real-time Drop Policy: If queue is full (DB is slow), 
                     # drop the oldest frame to make room for the newest telemetry.
+                    print(3455,decoded)
                     if decode_queue.full():
                         try:
                             decode_queue.get_nowait()
@@ -28,33 +30,38 @@ async def data_receiver(Reconnection_counter):
                     decode_queue.put_nowait(decoded)
         except asyncio.CancelledError:
             print("[Receiver] Data receiver stopped safely.")
+            pass
         except ConnectionRefusedError as e:
-            Reconnection_counter = Reconnection_counter - 1
-            print(f"[Receiver] Exception occurred: {e}, automatic reconnection started, {Reconnection_counter} retries left")
+            Retries_left -= 1
             await asyncio.sleep(0.5)
-            if Reconnection_counter == 0:
+            print(f"[Receiver] Exception occurred: {e}, automatic reconnection started, {Retries_left} retries left")
+            if Retries_left == 0:
                 try:
                     sys.exit(0)
                 except SystemExit:
                     print("connection has been permanently terminated, press Ctrl+C to exit the program")
+                    break;
+
 
 async def database_writer(conn):
     print("[Writer] Starting database saver...")
     insert_query = """
         INSERT INTO TELEMETRY (
-            TIMESTAMP, GPS_LATITUDE, GPS_LONGITUDE, ALTITUDE, 
+        PACKET_ID, TIMESTAMP, GPS_LATITUDE, GPS_LONGITUDE, ALTITUDE, 
             TEMPERATURE, PRESSURE, HUMIDITY, LUMINOUS_INTENSITY, 
             ACCELERATION_X, ACCELERATION_Y, ACCELERATION_Z, 
             GYRO_X, GYRO_Y, GYRO_Z, VOLTAGE, CURRENT
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16);
+        ) VALUES ($3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19);
     """
     try:
         while True:
             # If queue is empty, this line pauses the task automatically (0% CPU)
             data_frame = await decode_queue.get()
+            clean_db_payload = data_frame[2:]
+            print(type(data_frame),344)     
             try:
                 print("data insertion into postgres db started")
-                await conn.execute(insert_query, *data_frame)
+                await conn.execute(insert_query, *clean_db_payload)
             except Exception as db_err:
                 print(f"[Writer] Database insertion failed: {db_err}")
             finally:
@@ -71,6 +78,7 @@ max_size=10
     async with conn.acquire() as conn_pool:
         await conn_pool.execute(''' 
             CREATE TABLE IF NOT EXISTS TELEMETRY (
+                PACKET_ID INT NOT NULL,
                 TIMESTAMP INT NOT NULL,
                 GPS_LATITUDE INT NOT NULL, 
                 GPS_LONGITUDE INT NOT NULL, 
@@ -94,7 +102,7 @@ max_size=10
     # Run both functions concurrently under the event loop
     try:
         await asyncio.gather(
-        data_receiver(Reconnection_counter),
+        data_receiver(Max_retries),
         database_writer(conn)
         )
     except asyncio.CancelledError:
