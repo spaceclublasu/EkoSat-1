@@ -1,1 +1,0 @@
- specify data transmission interval e.g 1.02 means 1.02Hz 
