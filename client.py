@@ -16,10 +16,11 @@ async def data_receiver(Retries_left):
             async with connect("ws://localhost:4443") as websocket:
                 Retries_left = Max_retries
                 async for message in websocket:
-                    decoded = struct.unpack("<H 2s I I i i h h H B H h h h h h h H H ", message)
+                    decoded = struct.unpack("< H I I i i h h H B H h h h h h h H H H ", message)
                     # Real-time Drop Policy: If queue is full (DB is slow), 
                     # drop the oldest frame to make room for the newest telemetry.
-                    print(3455,decoded)
+                    print(3455,decoded[0])
+                    #await get_current.close()
                     if decode_queue.full():
                         try:
                             decode_queue.get_nowait()
@@ -30,7 +31,7 @@ async def data_receiver(Retries_left):
                     decode_queue.put_nowait(decoded)
         except asyncio.CancelledError:
             print("[Receiver] Data receiver stopped safely.")
-            pass
+            break;
         except ConnectionRefusedError as e:
             Retries_left -= 1
             await asyncio.sleep(0.5)
@@ -51,7 +52,7 @@ async def database_writer(conn):
             TEMPERATURE, PRESSURE, HUMIDITY, LUMINOUS_INTENSITY, 
             ACCELERATION_X, ACCELERATION_Y, ACCELERATION_Z, 
             GYRO_X, GYRO_Y, GYRO_Z, VOLTAGE, CURRENT
-        ) VALUES ($3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19);
+        ) VALUES ( $1,$2,$3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17);
     """
     try:
         while True:
@@ -97,7 +98,7 @@ max_size=10
                 CURRENT INT NOT NULL
             );
         ''')
-    print("[Main] Pipeline running concurrent workers. Press Ctrl+C to stop.")
+
         
     # Run both functions concurrently under the event loop
     try:
@@ -106,11 +107,11 @@ max_size=10
         database_writer(conn)
         )
     except asyncio.CancelledError:
+    #    group.cancel()
         print(2345)
         pass
     finally:
         print("[Main] Closing database connection...")
-        await conn.close()
         print("[Main] Offline.")
 
 if __name__ == "__main__":

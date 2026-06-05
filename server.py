@@ -16,6 +16,7 @@ CLIENTS = set()
 PORT  = 4443
 count = 0
 print("for good results, provide high  frequency values but low ascent/descent speed values")
+print("to properly shut down the server, make sure the client program is shutdown first by pressing  Ctrl+c buttons")
 telemetry= {"altitude": 0, "timestamp": int(time.strftime("%H%M%S")+"00")}
 frequency = float(input(" specify data transmission frequency e.g 1.02 means 1.02hz "))
 interval = float(1/frequency)
@@ -45,10 +46,11 @@ def sensor_simulators(height_per_cycle, interval, x):
     return telemetry
 
 asc_tele_list =[sensor_simulators(asc_alt_per_cycle, interval, packet_id).copy() for packet_id in range(0, int(max_altitude*1000)) if telemetry["altitude"]/1000 < max_altitude]#ascent mode
-desc_tele_list =[sensor_simulators(desc_alt_per_cycle, interval, packet_id).copy() for packet_id in range(0, int(max_altitude*1000)) if telemetry["altitude"]/1000 > 1]#descent mode
+current_pid= telemetry["packet_id"]+1
+desc_tele_list =[sensor_simulators(desc_alt_per_cycle, interval, packet_id).copy() for packet_id in range(current_pid, int(max_altitude*1000)) if telemetry["altitude"]/1000 > 1]#descent mode
 tele_data = asc_tele_list + desc_tele_list
 print(asc_tele_list)
-bin_data_list =[pack("<H", binascii.crc_hqx(x, 0)) + x for x in [ pack("<2s I I i i h h H B H h h h h h h H H ",telemetry["header"], telemetry["packet_id"], telemetry["timestamp"],telemetry["gps lattitude"],telemetry["gps longitude"], int(telemetry["altitude"]/1000), telemetry["temperature"],telemetry["pressure"], telemetry["humidity"],telemetry["lux"], telemetry["acceleration"][0], telemetry["acceleration"][1],telemetry["acceleration"][2], telemetry["gyro"][0],telemetry["gyro"][1], telemetry["gyro"][2], telemetry["voltage"],telemetry["current"]) for telemetry in tele_data]]
+bin_data_list =[x + pack("<H", binascii.crc_hqx(x, 0)) for x in [ pack("<2s I I i i h h H B H h h h h h h H H ",telemetry["header"], telemetry["packet_id"], telemetry["timestamp"],telemetry["gps lattitude"],telemetry["gps longitude"], int(telemetry["altitude"]/1000), telemetry["temperature"],telemetry["pressure"], telemetry["humidity"],telemetry["lux"], telemetry["acceleration"][0], telemetry["acceleration"][1],telemetry["acceleration"][2], telemetry["gyro"][0],telemetry["gyro"][1], telemetry["gyro"][2], telemetry["voltage"],telemetry["current"]) for telemetry in tele_data]]
 
 #final_asc_data_list = pack("<H", crc_val) + partial_asc_bin_data_list
 """
@@ -108,11 +110,19 @@ async def main():
     await asyncio.sleep(10)
     async with websockets.serve(stream_data, "0.0.0.0", 4443) as server:
         print("asynchronous server running on port", PORT)
-
-
-        await telemetry_stream(bin_data_list)
+        stream_task = asyncio.create_task(telemetry_stream(bin_data_list))
         print(32)
-        await server.serve_forever()
+        try:
+            await server.serve_forever()
+        except asyncio.CancelledError:
+                print("initiating system shutdown")
+        finally:
+            try:
+                stream_task.cancel()
+            except asyncio.CancelledError:
+                    print("task clean up ended")
+
+        await server.close()
 if __name__ == "__main__":
     try:
         asyncio.run(main())
