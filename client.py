@@ -69,6 +69,7 @@ async def database_writer(conn):
                 decode_queue.task_done()
     except asyncio.CancelledError:
         print("[Writer] Database writer stopped safely.")
+        
 
 async def main():
     # Establish Connection

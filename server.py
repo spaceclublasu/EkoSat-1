@@ -65,13 +65,15 @@ Note:
 
 
 async def relay(queue, websocket):
-    try:
-        while True:
+    while True:
+        try:
             message = await queue.get()
-            print(message, "relay")
+            print(message, "relay", type(websocket))
             await websocket.send(message)
-    except asyncio.CancelledError:
-        pass
+            print(34454545)
+        except asyncio.CancelledError:
+            print("yes!")
+            break
 
 async def stream_data(websocket):
     queue = asyncio.Queue(maxsize = 500)
@@ -90,6 +92,7 @@ async def stream_data(websocket):
             print("sd5")
             await relay_task
         except asyncio.CancelledError:
+            print(45667)
             pass
 
 async def broadcast_packet(packet: bytes):
@@ -100,9 +103,9 @@ async def broadcast_packet(packet: bytes):
 
 async def telemetry_stream(bin_data_list):
     for packet in bin_data_list:
-        print("ts1")
+        print("ts1", packet)
         await broadcast_packet(packet)
-        print("ts2")
+        print(234566666)
         await asyncio.sleep(interval)
 """i created the asynchronous main function to start the asynchronous web server and end it """
 async def main():
@@ -112,20 +115,30 @@ async def main():
         print("asynchronous server running on port", PORT)
         stream_task = asyncio.create_task(telemetry_stream(bin_data_list))
         print(32)
-        try:
-            await server.serve_forever()
-        except asyncio.CancelledError:
-                print("initiating system shutdown")
+        await stream_task
+        server.close()
+        await server.wait_closed()
+        print("server shutdown successful")
+        """try:
+            server.close()
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            await server.wait_closed()
+            print("initiating system shutdown")
         finally:
             try:
                 stream_task.cancel()
-            except asyncio.CancelledError:
-                    print("task clean up ended")
-
-        await server.close()
+                print(78)
+                await asyncio.gather(stream_task)
+            except asyncio.CancelledError: 
+                print(343343)
+           #     server.close()
+            #    await server.wait_closed()
+                print("task clean up ended")"""
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except KeyboardInterrupt or websockets.exceptions.ConnectionClosedOk:
+    except KeyboardInterrupt:
+        print("connection interrupted")
+    finally:
         print("Client disconnected")
 
