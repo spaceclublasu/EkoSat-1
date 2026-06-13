@@ -1,7 +1,3 @@
-Here’s a clean, professional **README.md** for your server program, based directly on your `server.py` and `client.py`. I’ve structured it the way real engineering projects (including aerospace/embedded systems) document telemetry systems.
-
----
-
 # 🚀 CanSat Telemetry Simulation Server
 
 A lightweight **asynchronous telemetry simulation system** that mimics how a CanSat transmits environmental and motion data to a ground station using WebSockets.
@@ -44,7 +40,8 @@ Acts as a ground station receiving and displaying telemetry data.
   * Gyroscope (3-axis)
   * Voltage & Current
   * Light intensity
-* Continuous data broadcast at ~50 Hz
+  * Timestamp
+* Continuous data broadcast at a maximum frequency of 10Hz
 
 ---
 
@@ -74,10 +71,10 @@ sensor_simulator()
 async def stream_data(websocket)
 ```
 
-3. Sends data as JSON:
+3. Sends struct data as binary packets:
 
 ```python
-await websocket.send(json.dumps(data))
+await websocket.send(bin_data)
 ```
 
 4. Runs on:
@@ -134,11 +131,11 @@ Each packet contains:
 # ⏱️ Sampling Rate
 
 ```python
-interval = 1/50
+sampling rate has a maximum of 10Hz, due to limitations of the ground station computer
 ```
 
-* ~50 samples per second (50 Hz)
-* Suitable for real-time telemetry simulation
+* ~10 samples per second (10 Hz)
+* Suitable for real-time telemetry data visualization and storage
 
 ---
 
@@ -153,10 +150,10 @@ cd <your-project-folder>
 
 ---
 
-### 2. Install dependencies
+### 2. Install python dependencies
 
 ```bash
-pip install websockets
+pip install -r rquirements.txt
 ```
 
 ---
@@ -201,7 +198,6 @@ Output:
 
 * Integrate with:
   * Database (PostgreSQL / InfluxDB)
-  * Visualization dashboard (e.g. Grafana)
 * Replace simulated data with **real sensor input**
 
 # 🧪 Educational Value
