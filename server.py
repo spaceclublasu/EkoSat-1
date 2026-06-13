@@ -138,7 +138,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("connection interrupted")
+        print("server connection interrupted")
     finally:
-        print("Client disconnected")
+        print("server shutdown successful!")
 
