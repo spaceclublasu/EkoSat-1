@@ -87,21 +87,21 @@ ws://0.0.0.0:4443
 
 ## 🖥️ Client Logic
 
-The client:
+The clients:
 
-1. Connects to the server:
+1. Both Clients Connect to the server:
 
 ```python
 connect("ws://localhost:4443")
 ```
 
-2. Listens for incoming data:
+2. Both Listen for incoming data:
 
 ```python
 async for message in websocket:
 ```
 
-3. Prints telemetry data to console
+3. One client acts as a frontend dashboard, it decodes each packet, verifies the CRC code of each packet, and plots the necessary data points on different graph, while the other client decodes, verifies and stores the data asynchronously via asyncpg into a postgres database
 
 ---
 
@@ -109,21 +109,25 @@ async for message in websocket:
 
 Each packet contains:
 
-```json
-{
-  "altitude": int,
-  "pressure": int,
-  "humidity": int,
-  "temperature": int,
-  "voltage": int,
-  "acceleration": [x, y, z],
-  "GPS Lattitude": int,
-  "GPS Longitude": int,
-  "Gyro": [x, y, z],
-  "timestamp": int,
-  "Luminous Intensity": int,
-  "current": int
-}
+```tuple
+( 
+  "header": char,
+  "packet_id": uint32,
+  "timestamp":uint32
+  "altitude": int16,
+  "pressure": uint16,
+  "humidity": uint8,
+  "temperature": int16,
+  "voltage": uint16,
+  "acceleration": [x, y, z] int16 per axis,
+  "GPS Lattitude": int32,
+  "GPS Longitude": int32,
+  "Gyro": [x, y, z], int16 per axis,
+  "timestamp": uint32,
+  "Luminous Intensity": uint,
+  "current": uint16,
+  "CRC": uint16
+)
 ```
 
 ---
@@ -169,7 +173,7 @@ python server.py
 Output:
 
 ```
-asynchronous server running on port 4443
+asynchronous server running on port 4443, data from server streams asynchronously to both client programs
 ```
 
 ---
@@ -183,21 +187,11 @@ python client.py
 Output:
 
 ```
-{telemetry data streaming...}
+Client1 displays data via graphs on dashboard while client2 stores the data in a postgrs db
 ```
-
 ---
-
-# ⚠️ Known Limitations
-
-* No persistent storage (yet)
-
----
-
 # 🚀 Future Improvements
 
-* Integrate with:
-  * Database (PostgreSQL / InfluxDB)
 * Replace simulated data with **real sensor input**
 
 # 🧪 Educational Value

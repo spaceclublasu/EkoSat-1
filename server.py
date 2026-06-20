@@ -50,11 +50,31 @@ current_pid= telemetry["packet_id"]+1
 desc_tele_list =[sensor_simulators(desc_alt_per_cycle, interval, packet_id).copy() for packet_id in range(current_pid, int(max_altitude*1000)) if telemetry["altitude"]/1000 > 1]#descent mode
 tele_data = asc_tele_list + desc_tele_list
 print(asc_tele_list)
-bin_data_list =[x + pack("<H", binascii.crc_hqx(x, 0)) for x in [ pack("<2s I I i i h h H B H h h h h h h H H ",telemetry["header"], telemetry["packet_id"], telemetry["timestamp"],telemetry["gps lattitude"],telemetry["gps longitude"], int(telemetry["altitude"]/1000), telemetry["temperature"],telemetry["pressure"], telemetry["humidity"],telemetry["lux"], telemetry["acceleration"][0], telemetry["acceleration"][1],telemetry["acceleration"][2], telemetry["gyro"][0],telemetry["gyro"][1], telemetry["gyro"][2], telemetry["voltage"],telemetry["current"]) for telemetry in tele_data]]
+bin_data_list =[x + pack("<H", binascii.crc_hqx(x, 0)) for x in [ pack("<2s I I i i h h H B H h h h h h h H H ",
+                                                                       telemetry["header"],#2s
+                                                                       telemetry["packet_id"],#I 
+                                                                       telemetry["timestamp"],#I
+                                                                       telemetry["gps lattitude"],#i
+                                                                       telemetry["gps longitude"],#i
+                                                                       int(telemetry["altitude"]/1000),#h
+                                                                       telemetry["temperature"],#h
+                                                                       telemetry["pressure"],#H
+                                                                       telemetry["humidity"],#B
+                                                                       telemetry["lux"],#H
+                                                                       telemetry["acceleration"][0],#h
+                                                                       telemetry["acceleration"][1],#h
+                                                                       telemetry["acceleration"][2],#h
+                                                                       telemetry["gyro"][0],#h
+                                                                       telemetry["gyro"][1],#h
+                                                                       telemetry["gyro"][2],#h
+                                                                       telemetry["voltage"],#H
+                                                                       telemetry["current"],#H
+                                                                       ) for telemetry in tele_data]]
 
 #final_asc_data_list = pack("<H", crc_val) + partial_asc_bin_data_list
 """
 Note:
+    2s=> a character of length 2bytes
     I=> unsigned 32 bit integer
     H=> unsigned 16 bit integer
     B=> unsigned Unsigned 8 bit integer 
@@ -139,6 +159,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("server connection interrupted")
-    finally:
-        print("server shutdown successful!")
 

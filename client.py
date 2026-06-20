@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
 import asyncio, sys
-import struct
+import struct 
+from decimal import Decimal,getcontext
 import asyncpg
 from websockets.asyncio.client import connect
 
@@ -58,17 +59,25 @@ async def database_writer(conn):
         while True:
             # If queue is empty, this line pauses the task automatically (0% CPU)
             data_frame = await decode_queue.get()
-            clean_db_payload = data_frame[2:]
-            print(type(data_frame),344)     
+            clean_db_payload = data_frame[1:18]
+            getcontext().prec = 7
+            scaled_payload =[data_frame[1],data_frame[2],Decimal(data_frame[3])/Decimal(1000000),Decimal(data_frame[4])/Decimal(1000000), Decimal(data_frame[5]),Decimal(data_frame[6])/Decimal(100), Decimal(data_frame[7])/Decimal(10),Decimal(data_frame[8])/Decimal(10),data_frame[9],Decimal(data_frame[10])/Decimal(100),Decimal(data_frame[11])/Decimal(100), Decimal(data_frame[12])/Decimal(100),Decimal(data_frame[13])/Decimal(100), Decimal(data_frame[14])/Decimal(100),Decimal(data_frame[15])/Decimal(100),Decimal(data_frame[16])/Decimal(1000),Decimal(data_frame[17])/Decimal(1000)]
+
+
+
+
+
+            print(type(data_frame),data_frame,344)     
             try:
                 print("data insertion into postgres db started")
-                await conn.execute(insert_query, *clean_db_payload)
+                await conn.execute(insert_query, *scaled_payload)
             except Exception as db_err:
                 print(f"[Writer] Database insertion failed: {db_err}")
             finally:
                 decode_queue.task_done()
+                await asyncio.sleep(0)
     except asyncio.CancelledError:
-        print("[Writer] Database writer stopped safely.")
+        print("[Writer] Database writer stoppeid safely.")
         
 
 async def main():
@@ -82,21 +91,21 @@ max_size=10
             CREATE TABLE IF NOT EXISTS TELEMETRY (
                 PACKET_ID INT NOT NULL,
                 TIMESTAMP INT NOT NULL,
-                GPS_LATITUDE INT NOT NULL, 
-                GPS_LONGITUDE INT NOT NULL, 
-                ALTITUDE INT NOT NULL, 
-                TEMPERATURE INT NOT NULL,
-                PRESSURE INT NOT NULL, 
-                HUMIDITY INT NOT NULL, 
+                GPS_LATITUDE NUMERIC NOT NULL, 
+                GPS_LONGITUDE NUMERIC NOT NULL, 
+                ALTITUDE NUMERIC NOT NULL, 
+                TEMPERATURE NUMERIC NOT NULL,
+                PRESSURE NUMERIC NOT NULL, 
+                HUMIDITY NUMERIC NOT NULL, 
                 LUMINOUS_INTENSITY INT NOT NULL,
-                ACCELERATION_X INT NOT NULL, 
-                ACCELERATION_Y INT NOT NULL, 
-                ACCELERATION_Z INT NOT NULL,
-                GYRO_X INT NOT NULL, 
-                GYRO_Y INT NOT NULL, 
-                GYRO_Z INT NOT NULL, 
-                VOLTAGE INT NOT NULL, 
-                CURRENT INT NOT NULL
+                ACCELERATION_X NUMERIC NOT NULL, 
+                ACCELERATION_Y NUMERIC NOT NULL, 
+                ACCELERATION_Z NUMERIC NOT NULL,
+                GYRO_X NUMERIC NOT NULL, 
+                GYRO_Y NUMERIC NOT NULL, 
+                GYRO_Z NUMERIC NOT NULL, 
+                VOLTAGE NUMERIC NOT NULL, 
+                CURRENT NUMERIC NOT NULL
             );
         ''')
 
