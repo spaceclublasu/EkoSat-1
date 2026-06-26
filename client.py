@@ -4,6 +4,7 @@ import asyncio, sys
 import struct 
 from decimal import Decimal,getcontext
 import asyncpg
+import binascii
 from websockets.asyncio.client import connect
 
 # 1. Bounded queue ensures memory never grows infinitely if DB falls behind
@@ -14,26 +15,34 @@ async def data_receiver(Retries_left):
         print("[Receiver] Starting WebSocket listener...")
         try:
             # Fixed syntax error: 'try' must be on its own line
-            async with connect("ws://localhost:4443") as websocket:
+            #random network host adress used as test, it must change to ip adress of groundstation computer during deployment
+            async with connect("ws://192.168.232.161:4443") as websocket:
                 Retries_left = Max_retries
-                async for message in websocket:
-                    decoded = struct.unpack("< H I I i i h h H B H h h h h h h H H H ", message)
-                    # Real-time Drop Policy: If queue is full (DB is slow), 
-                    # drop the oldest frame to make room for the newest telemetry.
-                    print(3455,decoded[0])
-                    #await get_current.close()
-                    if decode_queue.full():
-                        try:
-                            decode_queue.get_nowait()
-                            decode_queue.task_done()
-                        except asyncio.QueueEmpty:
-                            pass
-                    # Fixed: Moved inside the loop so EVERY frame gets queued
-                    decode_queue.put_nowait(decoded)
+                try:
+                    async for message in websocket:
+                        decoded = struct.unpack("< 2s I I i i h h H B H h h h h h h H H H ", message)
+                        # Real-time Drop Policy: If queue is full (DB is slow), 
+                        # drop the oldest frame to make room for the newest telemetry.
+                        data_validator = binascii.crc_hqx(message[:-2], 0)
+                        
+                        print(3455,decoded[18], data_validator)
+                        #await get_current.close()
+                        if data_validator == decoded[18]:
+                            if decode_queue.full():
+                                try:
+                                    decode_queue.get_nowait()
+                                    decode_queue.task_done()
+                                except asyncio.QueueEmpty:
+                                    pass
+                            # Fixed: Moved inside the loop so EVERY frame gets queued
+                            decode_queue.put_nowait(decoded)
+                except struct.error:
+                    print("data could not be unpacked successfully")
+                    continue
         except asyncio.CancelledError:
             print("[Receiver] Data receiver stopped safely.")
             break;
-        except ConnectionRefusedError as e:
+        except (ConnectionRefusedError, ConnectionResetError) as e:
             Retries_left -= 1
             await asyncio.sleep(0.5)
             print(f"[Receiver] Exception occurred: {e}, automatic reconnection started, {Retries_left} retries left")

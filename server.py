@@ -49,7 +49,6 @@ asc_tele_list =[sensor_simulators(asc_alt_per_cycle, interval, packet_id).copy()
 current_pid= telemetry["packet_id"]+1
 desc_tele_list =[sensor_simulators(desc_alt_per_cycle, interval, packet_id).copy() for packet_id in range(current_pid, int(max_altitude*1000)) if telemetry["altitude"]/1000 > 1]#descent mode
 tele_data = asc_tele_list + desc_tele_list
-print(asc_tele_list)
 bin_data_list =[x + pack("<H", binascii.crc_hqx(x, 0)) for x in [ pack("<2s I I i i h h H B H h h h h h h H H ",
                                                                        telemetry["header"],#2s
                                                                        telemetry["packet_id"],#I 
@@ -71,6 +70,8 @@ bin_data_list =[x + pack("<H", binascii.crc_hqx(x, 0)) for x in [ pack("<2s I I 
                                                                        telemetry["current"],#H
                                                                        ) for telemetry in tele_data]]
 
+
+print(bin_data_list)
 #final_asc_data_list = pack("<H", crc_val) + partial_asc_bin_data_list
 """
 Note:
