@@ -1,36 +1,10 @@
-# 🚀 CanSat Telemetry Simulation Server
-
-A lightweight **asynchronous telemetry simulation system** that mimics how a CanSat transmits environmental and motion data to a ground station using WebSockets.
-
-This project is designed to help understand:
-
-* Real-time data streaming
-* Telemetry system design
-* Client-server communication
-* Data visualization pipelines
-
----
-
-# 📡 Overview
-
-The system consists of two components:
-
-### 🛰️ Server (`server.py`)
-
-Simulates a CanSat transmitting telemetry data at high frequency.
-
-### 🖥️ Client (`client.py`)
-
-Acts as a ground station receiving and displaying telemetry data.
-
----
-
-# ⚙️ Features
-
-* Real-time telemetry streaming using **WebSockets**
-* Asynchronous architecture using `asyncio`
+# 🚀 CanSat Groundstation telemetry software 
+###overview
+This software makes use of distributed systems design architecture inorder to improve fault tolerance.
+The software consists of two parts:
+1. ### A Cansat simulation server program:
+This is a lightweight **asynchronous telemetry simulation program** that mimics how a CanSat groundstation computer transmits environmental and motion data to two independent client computers for processing ,storage and visualization using WebSockets and asyncio in real time. This program is only used for pre-hardware integration software development and testing. It will be replaced by a program, which will be added later, that is native to the Raspberry pico-W computer during hardware integration.
 * Simulated sensor data:
-
   * Altitude
   * Temperature
   * Pressure
@@ -41,9 +15,20 @@ Acts as a ground station receiving and displaying telemetry data.
   * Voltage & Current
   * Light intensity
   * Timestamp
-* Continuous data broadcast at a maximum frequency of 10Hz
+  * Continuous data broadcast at a maximum frequency of 10Hz
+2.  ### 🖥️ Client computers or scripts(`client.py`) : These clients will independently handle
+   a. data visualization
+   b. data storage
+
+This project is designed to help students and young aerospace professionals understand:
+
+* Real-time data streaming
+* Telemetry system design
+* Client-server communication
+* Data visualization pipelines
 
 ---
+
 
 # 🧠 How It Works
 
@@ -178,7 +163,7 @@ asynchronous server running on port 4443, data from server streams asynchronousl
 
 ---
 
-## Start the Client (in another terminal)
+## Start the Client (in another terminal or computer)
 
 ```bash
 python client.py
