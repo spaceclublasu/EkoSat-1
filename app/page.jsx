@@ -381,7 +381,9 @@ function SystemsSection() {
 // Replace your entire TelemetrySection function with this one.
 // Make sure your server.py is running on port 4443 before testing.
 
+
 function TelemetrySection() {
+  const flightLogRef = useRef([]);
   const [isLive, setIsLive] = useState(false);
   const [connected, setConnected] = useState(false);
   const [phase, setPhase] = useState("STANDBY");
@@ -391,6 +393,57 @@ function TelemetrySection() {
   const bufferRef = useRef([]);
   const renderRef = useRef(null);
   const elapsedRef = useRef(null);
+
+  const downloadCSV = () => {
+  if (flightLogRef.current.length === 0) return;
+
+  // Clean headers
+  const headers = [
+    "Timestamp",
+    "Altitude (m)",
+    "Temperature (°C)",
+    "Pressure (Pa)",
+    "Humidity (%)",
+    "Accel X (g)",
+    "Accel Y (g)",
+    "Accel Z (g)",
+    "Gyro X",
+    "Gyro Y",
+    "Gyro Z",
+    "Light (lux)",
+    "Voltage (mV)",
+    "Current (mA)",
+    "GPS Latitude",
+    "GPS Longitude",
+  ].join(",");
+
+  const rows = flightLogRef.current.map(row => [
+    row.timestamp ?? "", // human readable time
+    row.altitude?.toFixed(3) ?? "",
+    row.temperature ?? "",
+    row.pressure ?? "",
+    row.humidity ?? "",
+    row.accel_x ?? "",
+    row.accel_y ?? "",
+    row.accel_z ?? "",
+    row.gyro_x ?? "",
+    row.gyro_y ?? "",
+    row.gyro_z ?? "",
+    row.light ?? "",
+    row.voltage ?? "",
+    row.current ?? "",
+    row.gps_lat ?? "",
+    row.gps_lon ?? "",
+  ].join(",")).join("\n");
+
+  const blob = new Blob([headers + "\n" + rows], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `cansat_flight_${new Date().toISOString().slice(0,19).replace(/:/g,"-")}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
 
   // ── Chart state — all sensors from server.py ─────────────────────────────
   const [alt, setAlt] = useState(() => makeSeries(0, 0, 2));
@@ -429,7 +482,8 @@ function TelemetrySection() {
     if (wsRef.current) wsRef.current.close();
     setError(null);
 
-   const ws = new WebSocket("ws://127.0.0.1:4443");
+   const wsHost = window.location.hostname;
+const ws = new WebSocket(`ws://${wsHost}:4443`);
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -480,12 +534,76 @@ function TelemetrySection() {
 };
 
     // Buffer ALL 50 packets/sec
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        bufferRef.current.push(data);
-      } catch (_) {}
-    };
+ws.onmessage = (event) => {
+  try {
+    const data = JSON.parse(event.data);
+
+    // CRC-16 validation
+    if (data.crc !== undefined && !validateCRC(data)) return;
+    
+
+  
+    if (data.temp !== undefined)
+      setTemp(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.temp }]);
+    if (data.pressure !== undefined)
+      setPressure(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.pressure }]);
+    if (data.humidity !== undefined)
+      setHumidity(prev => [...prev.slice(-(MAX_PTS- 1)), { t: data.timestamp || "now", v: data.humidity }]);
+    if (data.ax !== undefined)
+      setAccelX(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.ax }]);
+    if (data.ay !== undefined)
+      setAccelY(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.ay }]);
+    if (data.light !== undefined)
+      setLight(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.light }]);
+    if (data.voltage !== undefined)
+      setVoltage(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.voltage }]);
+    if (data.gx !== undefined)
+      setGyroX(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.gx }]);
+    if (data.current !== undefined)
+      setCurrent(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.current }]);
+    if (data.lat !== undefined)
+      setGps({ lat: data.lat, lon: data.lon });
+
+    // Log every packet
+    flightLogRef.current.push({
+      timestamp: data.timestamp,
+      altitude: data.altitude,
+      temperature: data.temp,
+      pressure: data.pressure,
+      humidity: data.humidity,
+      accel_x: data.ax,
+      accel_y: data.ay,
+      accel_z: data.az,
+      gyro_x: data.gx,
+      gyro_y: data.gy,
+      gyro_z: data.gz,
+      light: data.light,
+      voltage: data.voltage,
+      current: data.current,
+      gps_lat: data.lat,
+      gps_lon: data.lon,
+    });
+
+    bufferRef.current.push(data);
+    setElapsed(e => e + 1);
+
+  } catch (_) {}
+};
+
+const validateCRC = (data) => {
+  const str = JSON.stringify(data, Object.keys(data).filter(k => k !== "crc"));
+  const bytes = new TextEncoder().encode(str);
+  let crc = 0xFFFF;
+  for (const byte of bytes) {
+    crc ^= byte << 8;
+    for (let i = 0; i < 8; i++) {
+      crc = crc & 0x8000 ? (crc << 1) ^ 0x1021 : crc << 1;
+      crc &= 0xFFFF;
+    }
+  }
+  return crc === data.crc;
+};
+
 
     ws.onerror = () => {
       setError("Cannot reach server — make sure server.py is running on port 4443");
@@ -517,7 +635,7 @@ function TelemetrySection() {
     }
 
     // Elapsed counter
-    elapsedRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+    elapsedRef.current = setInterval(() => setElapsed(e => e + 1), 200);
 
     // Chart update — 5 times per second (200ms)
     renderRef.current = setInterval(() => {
@@ -529,7 +647,7 @@ function TelemetrySection() {
 
       // Map server.py fields to charts
       if (data.altitude !== undefined) {
-  const realAlt = +(data.altitude / 10).toFixed(1);
+  const realAlt = +data.altitude.toFixed(3);
   setAlt(prev => [...prev.slice(-(MAX_PTS - 1)), { t: "now", v: realAlt }]);
   // Phase detection using real altitude
   if (realAlt >= 990) setPhase("DESCENT");
@@ -644,7 +762,12 @@ function TelemetrySection() {
               )}
               <button onClick={doReset} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontFamily: "'Space Mono',monospace", fontSize: 9, cursor: "pointer", letterSpacing: .8 }}>
                 ↺ Reset
-              </button>
+              </button>  
+
+              <button onClick={downloadCSV} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.blue}88`, background: "transparent", color: C.blue, fontFamily: "'Space Mono',monospace", fontSize: 9, cursor: "pointer", letterSpacing: .8 }}>
+              ↓ Export CSV
+              </button> 
+
             </div>
           </div>
         </div>
