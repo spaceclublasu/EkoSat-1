@@ -120,7 +120,7 @@ async def broadcast_packet(packet: bytes):
     """send one telemetry packet to all clients"""
     for queue in CLIENTS:
         print("sd6",queue)
-        queue.put_nowait(packet)
+        await queue.put(packet)
 
 async def telemetry_stream(bin_data_list):
     for packet in bin_data_list:
