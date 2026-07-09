@@ -134,11 +134,13 @@ async def main():
     await asyncio.sleep(10)
     async with websockets.serve(stream_data, "0.0.0.0", 4443) as server:
         print("asynchronous server running on port", PORT)
+
+        print(asyncio.get_running_loop())
         stream_task = asyncio.create_task(telemetry_stream(bin_data_list))
         print(32)
         await stream_task
-        server.close()
         await server.wait_closed()
+        server.close()
         print("server shutdown successful")
         """try:
             server.close()

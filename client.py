@@ -16,32 +16,35 @@ async def data_receiver(Retries_left):
         try:
             # Fixed syntax error: 'try' must be on its own line
             #random network host adress used as test, it must change to ip adress of groundstation computer during deployment
-            async with connect("ws://192.168.232.161:4443") as websocket:
-                Retries_left = Max_retries
-                try:
-                    async for message in websocket:
-                        decoded = struct.unpack("< 2s I I i i h h H B H h h h h h h H H H ", message)
-                        # Real-time Drop Policy: If queue is full (DB is slow), 
-                        # drop the oldest frame to make room for the newest telemetry.
-                        data_validator = binascii.crc_hqx(message[:-2], 0)
-                        
-                        print(3455,decoded[18], data_validator)
-                        #await get_current.close()
-                        if data_validator == decoded[18]:
-                            if decode_queue.full():
-                                try:
-                                    decode_queue.get_nowait()
-                                    decode_queue.task_done()
-                                except asyncio.QueueEmpty:
-                                    pass
-                            # Fixed: Moved inside the loop so EVERY frame gets queued
-                            decode_queue.put_nowait(decoded)
-                except struct.error:
-                    print("data could not be unpacked successfully")
-                    continue
-        except asyncio.CancelledError:
-            print("[Receiver] Data receiver stopped safely.")
-            break;
+            try:
+                async with connect("ws://192.168.236.70:4443", open_timeout=5,
+                                   ping_interval=1,   # Send a tiny ping packet to Termux every 1 second
+                                   ping_timeout=1     # If Termux doesn't reply in 1 second, kill the socket!
+                                   ) as websocket:
+                    Retries_left = Max_retries
+                    try:
+                        async for message in websocket:
+                            decoded = struct.unpack("< 2s I I i i h h H B H h h h h h h H H H ", message)
+                            # Real-time Drop Policy: If queue is full (DB is slow), 
+                            # drop the oldest frame to make room for the newest telemetry.
+                            data_validator = binascii.crc_hqx(message[:-2], 0)
+                            print(3455,decoded[18], data_validator)
+                            #await get_current.close()
+                            if data_validator == decoded[18]:
+                                if decode_queue.full():
+                                    try:
+                                        decode_queue.get_nowait()
+                                        decode_queue.task_done()
+                                    except asyncio.QueueEmpty:
+                                        pass
+                                # Fixed: Moved inside the loop so EVERY frame gets queued
+                                decode_queue.put_nowait(decoded)
+                    except struct.error:
+                        print("data could not be unpacked successfully")
+                        continue
+            except (asyncio.CancelledError, ConnectionResetError):
+                print("[Receiver] Data receiver stopped safely.")
+                break;
         except (ConnectionRefusedError, ConnectionResetError) as e:
             Retries_left -= 1
             await asyncio.sleep(0.5)
@@ -120,18 +123,22 @@ max_size=10
 
         
     # Run both functions concurrently under the event loop
-    try:
-        await asyncio.gather(
-        data_receiver(Max_retries),
-        database_writer(conn)
+    while True:
+        try:
+            await asyncio.gather(
+                    data_receiver(Max_retries),
+                    database_writer(conn)
         )
-    except asyncio.CancelledError:
-    #    group.cancel()
-        print(2345)
-        pass
-    finally:
-        print("[Main] Closing database connection...")
-        print("[Main] Offline.")
+        except asyncio.CancelledError:
+            #    group.cancel()
+            print(2345)
+            pass
+        except (ConnectionResetError, ConnectionRefusedError,OSError) as net_err:
+                print(f"\n network/ Operating system Error: {net_err}, reconnecting in 7 seconds")
+                await asyncio.sleep(7.0)
+        finally:
+            print("[Main] Closing database connection...")
+            print("[Main] Offline.")
 
 if __name__ == "__main__":
     try:
