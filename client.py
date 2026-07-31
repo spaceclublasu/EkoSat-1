@@ -17,7 +17,7 @@ async def data_receiver(Retries_left):
             # Fixed syntax error: 'try' must be on its own line
             #random network host adress used as test, it must change to ip adress of groundstation computer during deployment
             try:
-                async with connect("ws://192.168.236.70:4443", open_timeout=5,
+                async with connect("ws://localhost:4443", open_timeout=5,
                                    ping_interval=1,   # Send a tiny ping packet to Termux every 1 second
                                    ping_timeout=1     # If Termux doesn't reply in 1 second, kill the socket!
                                    ) as websocket:
