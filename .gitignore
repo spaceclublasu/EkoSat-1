@@ -1,4 +1,4 @@
-
+*.*.swp
 node_modules/
 
 
@@ -17,7 +17,5 @@ yarn-error.log*
 pnpm-debug.log*
 
 .DS_Store
-
-echo ".next/" >> .gitignore
-echo "__pycache__/" >> .gitignore
-echo "*.pyc" >> .gitignore
+__pycache__/
+*.pyc

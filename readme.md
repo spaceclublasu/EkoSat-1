@@ -1,40 +1,11 @@
-Here’s a clean, professional **README.md** for your server program, based directly on your `server.py` and `client.py`. I’ve structured it the way real engineering projects (including aerospace/embedded systems) document telemetry systems.
-
----
-
-# 🚀 CanSat Telemetry Simulation Server
-
-A lightweight **asynchronous telemetry simulation system** that mimics how a CanSat transmits environmental and motion data to a ground station using WebSockets.
-
-This project is designed to help understand:
-
-* Real-time data streaming
-* Telemetry system design
-* Client-server communication
-* Data visualization pipelines
-
----
-
-# 📡 Overview
-
-The system consists of two components:
-
-### 🛰️ Server (`server.py`)
-
-Simulates a CanSat transmitting telemetry data at high frequency.
-
-### 🖥️ Client (`client.py`)
-
-Acts as a ground station receiving and displaying telemetry data.
-
----
-
-# ⚙️ Features
-
-* Real-time telemetry streaming using **WebSockets**
-* Asynchronous architecture using `asyncio`
+# 🚀 CanSat Groundstation telemetry software 
+# overview
+This repository contains the avionics telecommunications software used for the entire cansat project.
+This software makes use of a distributed systems design architecture in order to improve fault tolerance.
+The software consists of two parts:
+1. ### A Cansat simulation server program###:
+   This is a lightweight **asynchronous telemetry simulation program** that mimics how a CanSat groundstation computer transmits environmental and motion data to two independent client computers for processing ,storage and visualization using WebSockets and asyncio in real time. This program is only used for pre-hardware integration software development and testing. It will be replaced by a program, which will be added later, that is native to the Raspberry pico-W computer during hardware integration.
 * Simulated sensor data:
-
   * Altitude
   * Temperature
   * Pressure
@@ -44,9 +15,22 @@ Acts as a ground station receiving and displaying telemetry data.
   * Gyroscope (3-axis)
   * Voltage & Current
   * Light intensity
-* Continuous data broadcast at ~50 Hz
+  * Timestamp
+  * Continuous data broadcast at a maximum frequency of 10Hz
+
+2.  # 🖥️ Client computers or scripts(`client.py`): These clients will independently handle
+   a. data visualization
+   b. data storage
+
+This project is designed to help students and young aerospace professionals understand:
+
+* Real-time data streaming
+* Telemetry system design
+* Client-server communication
+* Data visualization pipelines
 
 ---
+
 
 # 🧠 How It Works
 
@@ -74,10 +58,10 @@ sensor_simulator()
 async def stream_data(websocket)
 ```
 
-3. Sends data as JSON:
+3. Sends struct data as binary packets:
 
 ```python
-await websocket.send(json.dumps(data))
+await websocket.send(bin_data)
 ```
 
 4. Runs on:
@@ -90,21 +74,21 @@ ws://0.0.0.0:4443
 
 ## 🖥️ Client Logic
 
-The client:
+The clients:
 
-1. Connects to the server:
+1. Both Clients Connect to the server:
 
 ```python
 connect("ws://localhost:4443")
 ```
 
-2. Listens for incoming data:
+2. Both Listen for incoming data:
 
 ```python
 async for message in websocket:
 ```
 
-3. Prints telemetry data to console
+3. One client acts as a frontend dashboard, it decodes each packet, verifies the CRC code of each packet, and plots the necessary data points on different graph, while the other client decodes, verifies and stores the data asynchronously via asyncpg into a postgres database
 
 ---
 
@@ -112,21 +96,25 @@ async for message in websocket:
 
 Each packet contains:
 
-```json
-{
-  "altitude": int,
-  "pressure": int,
-  "humidity": int,
-  "temperature": int,
-  "voltage": int,
-  "acceleration": [x, y, z],
-  "GPS Lattitude": int,
-  "GPS Longitude": int,
-  "Gyro": [x, y, z],
-  "timestamp": int,
-  "Luminous Intensity": int,
-  "current": int
-}
+```tuple
+( 
+  "header": char,
+  "packet_id": uint32,
+  "timestamp":uint32
+  "altitude": int16,
+  "pressure": uint16,
+  "humidity": uint8,
+  "temperature": int16,
+  "voltage": uint16,
+  "acceleration": [x, y, z] int16 per axis,
+  "GPS Lattitude": int32,
+  "GPS Longitude": int32,
+  "Gyro": [x, y, z], int16 per axis,
+  "timestamp": uint32,
+  "Luminous Intensity": uint,
+  "current": uint16,
+  "CRC": uint16
+)
 ```
 
 ---
@@ -134,11 +122,11 @@ Each packet contains:
 # ⏱️ Sampling Rate
 
 ```python
-interval = 1/50
+sampling rate has a maximum of 10Hz, due to limitations of the ground station computer
 ```
 
-* ~50 samples per second (50 Hz)
-* Suitable for real-time telemetry simulation
+* ~10 samples per second (10 Hz)
+* Suitable for real-time telemetry data visualization and storage
 
 ---
 
@@ -153,10 +141,10 @@ cd <your-project-folder>
 
 ---
 
-### 2. Install dependencies
+### 2. Install python dependencies
 
 ```bash
-pip install websockets
+pip install -r rquirements.txt
 ```
 
 ---
@@ -172,12 +160,12 @@ python server.py
 Output:
 
 ```
-asynchronous server running on port 4443
+asynchronous server running on port 4443, data from server streams asynchronously to both client programs
 ```
 
 ---
 
-## Start the Client (in another terminal)
+## Start the Client (in another terminal or computer)
 
 ```bash
 python client.py
@@ -186,22 +174,11 @@ python client.py
 Output:
 
 ```
-{telemetry data streaming...}
+Client1 displays data via graphs on dashboard while client2 stores the data in a postgrs db
 ```
-
 ---
-
-# ⚠️ Known Limitations
-
-* No persistent storage (yet)
-
----
-
 # 🚀 Future Improvements
 
-* Integrate with:
-  * Database (PostgreSQL / InfluxDB)
-  * Visualization dashboard (e.g. Grafana)
 * Replace simulated data with **real sensor input**
 
 # 🧪 Educational Value
