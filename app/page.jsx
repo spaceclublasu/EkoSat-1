@@ -394,58 +394,6 @@ function TelemetrySection() {
   const renderRef = useRef(null);
   const elapsedRef = useRef(null);
 
-  const downloadCSV = () => {
-  if (flightLogRef.current.length === 0) return;
-
-  // Clean headers
-  const headers = [
-    "Timestamp",
-    "Altitude (m)",
-    "Temperature (°C)",
-    "Pressure (Pa)",
-    "Humidity (%)",
-    "Accel X (g)",
-    "Accel Y (g)",
-    "Accel Z (g)",
-    "Gyro X",
-    "Gyro Y",
-    "Gyro Z",
-    "Light (lux)",
-    "Voltage (mV)",
-    "Current (mA)",
-    "GPS Latitude",
-    "GPS Longitude",
-  ].join(",");
-
-  const rows = flightLogRef.current.map(row => [
-    row.timestamp ?? "", // human readable time
-    row.altitude?.toFixed(3) ?? "",
-    row.temperature ?? "",
-    row.pressure ?? "",
-    row.humidity ?? "",
-    row.accel_x ?? "",
-    row.accel_y ?? "",
-    row.accel_z ?? "",
-    row.gyro_x ?? "",
-    row.gyro_y ?? "",
-    row.gyro_z ?? "",
-    row.light ?? "",
-    row.voltage ?? "",
-    row.current ?? "",
-    row.gps_lat ?? "",
-    row.gps_lon ?? "",
-  ].join(",")).join("\n");
-
-  const blob = new Blob([headers + "\n" + rows], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `cansat_flight_${new Date().toISOString().slice(0,19).replace(/:/g,"-")}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-};
-
-  // ── Chart state — all sensors from server.py ─────────────────────────────
   const [alt, setAlt] = useState(() => makeSeries(0, 0, 2));
   const [temp, setTemp] = useState(() => makeSeries(0, 0, 2));
   const [pressure, setPressure] = useState(() => makeSeries(0, 0, 2));
@@ -456,11 +404,13 @@ function TelemetrySection() {
   const [voltage, setVoltage] = useState(() => makeSeries(0, 0, 2));
   const [gyroX, setGyroX] = useState(() => makeSeries(0, 0, 2));
   const [current, setCurrent] = useState(() => makeSeries(0, 0, 2));
-
-  // GPS — just show latest value, no chart needed
   const [gps, setGps] = useState({ lat: null, lon: null });
 
   const doReset = () => {
+    if (wsRef.current) wsRef.current.close();
+    wsRef.current = null;
+    bufferRef.current = [];
+    flightLogRef.current = [];
     setAlt(makeSeries(0, 0, 2));
     setTemp(makeSeries(0, 0, 2));
     setPressure(makeSeries(0, 0, 2));
@@ -475,148 +425,104 @@ function TelemetrySection() {
     setElapsed(0);
     setPhase("STANDBY");
     setError(null);
+    setConnected(false);
+    setIsLive(false);
   };
 
-  // ── WebSocket connection ──────────────────────────────────────────────────
+  const downloadCSV = () => {
+    if (flightLogRef.current.length === 0) return;
+    const headers = [
+      "Timestamp","Altitude (m)","Temperature (°C)","Pressure (hPa)",
+      "Humidity (%)","Accel X (g)","Accel Y (g)","Accel Z (g)",
+      "Gyro X","Gyro Y","Gyro Z","Light (lux)",
+      "Voltage (V)","Current (A)","GPS Latitude","GPS Longitude",
+    ].join(",");
+    const rows = flightLogRef.current.map(row => [
+      row.timestamp ?? "",
+      row.altitude?.toFixed(3) ?? "",
+      row.temp ?? "",
+      row.pressure ?? "",
+      row.humidity ?? "",
+      row.ax ?? "",
+      row.ay ?? "",
+      row.az ?? "",
+      row.gx ?? "",
+      row.gy ?? "",
+      row.gz ?? "",
+      row.light ?? "",
+      row.voltage ?? "",
+      row.current ?? "",
+      row.lat ?? "",
+      row.lon ?? "",
+    ].join(",")).join("\n");
+    const blob = new Blob([headers + "\n" + rows], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `cansat_flight_${new Date().toISOString().slice(0,19).replace(/:/g,"-")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const connect = () => {
-    if (wsRef.current) wsRef.current.close();
-    setError(null);
-
-   const wsHost = window.location.hostname;
-const ws = new WebSocket(`ws://${wsHost}:4443`);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setConnected(true);
-      setIsLive(true);
-      setPhase("ASCENT");
-    };
-
-    const connect = () => {
-  if (wsRef.current) {
-    wsRef.current.close();
-    wsRef.current = null;
-  }
-  setError(null);
-  setConnected(false);
-
-  // Small delay so previous connection fully closes
-  setTimeout(() => {
-    const ws = new WebSocket("ws://localhost:4443");
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setConnected(true);
-      setIsLive(true);
-      setPhase("ASCENT");
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        bufferRef.current.push(data);
-      } catch (_) {}
-    };
-
-    ws.onerror = () => {
-      setError("Cannot reach server — make sure server.py is running on port 4443");
-      setConnected(false);
-      setIsLive(false);
-      setPhase("STANDBY");
-    };
-
-    ws.onclose = () => {
-      setConnected(false);
-      setIsLive(false);
-      if (phase !== "STANDBY") setPhase("LANDED");
-    };
-  }, 100);
-};
-
-    // Buffer ALL 50 packets/sec
-ws.onmessage = (event) => {
-  try {
-    const data = JSON.parse(event.data);
-
-    // CRC-16 validation
-    if (data.crc !== undefined && !validateCRC(data)) return;
-    
-
-  
-    if (data.temp !== undefined)
-      setTemp(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.temp }]);
-    if (data.pressure !== undefined)
-      setPressure(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.pressure }]);
-    if (data.humidity !== undefined)
-      setHumidity(prev => [...prev.slice(-(MAX_PTS- 1)), { t: data.timestamp || "now", v: data.humidity }]);
-    if (data.ax !== undefined)
-      setAccelX(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.ax }]);
-    if (data.ay !== undefined)
-      setAccelY(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.ay }]);
-    if (data.light !== undefined)
-      setLight(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.light }]);
-    if (data.voltage !== undefined)
-      setVoltage(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.voltage }]);
-    if (data.gx !== undefined)
-      setGyroX(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.gx }]);
-    if (data.current !== undefined)
-      setCurrent(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: data.current }]);
-    if (data.lat !== undefined)
-      setGps({ lat: data.lat, lon: data.lon });
-
-    // Log every packet
-    flightLogRef.current.push({
-      timestamp: data.timestamp,
-      altitude: data.altitude,
-      temperature: data.temp,
-      pressure: data.pressure,
-      humidity: data.humidity,
-      accel_x: data.ax,
-      accel_y: data.ay,
-      accel_z: data.az,
-      gyro_x: data.gx,
-      gyro_y: data.gy,
-      gyro_z: data.gz,
-      light: data.light,
-      voltage: data.voltage,
-      current: data.current,
-      gps_lat: data.lat,
-      gps_lon: data.lon,
-    });
-
-    bufferRef.current.push(data);
-    setElapsed(e => e + 1);
-
-  } catch (_) {}
-};
-
-const validateCRC = (data) => {
-  const str = JSON.stringify(data, Object.keys(data).filter(k => k !== "crc"));
-  const bytes = new TextEncoder().encode(str);
-  let crc = 0xFFFF;
-  for (const byte of bytes) {
-    crc ^= byte << 8;
-    for (let i = 0; i < 8; i++) {
-      crc = crc & 0x8000 ? (crc << 1) ^ 0x1021 : crc << 1;
-      crc &= 0xFFFF;
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
     }
-  }
-  return crc === data.crc;
-};
+    setError(null);
+    setConnected(false);
 
+    setTimeout(() => {
+      const wsHost = window.location.hostname;
+      const ws = new WebSocket(`ws://${wsHost}:4443`);
+      wsRef.current = ws;
 
-    ws.onerror = () => {
-      setError("Cannot reach server — make sure server.py is running on port 4443");
-      setConnected(false);
-      setIsLive(false);
-      setPhase("STANDBY");
-    };
+      ws.onopen = () => {
+        setConnected(true);
+        setIsLive(true);
+        setPhase("ASCENT");
+      };
 
-    ws.onclose = () => {
-      setConnected(false);
-      setIsLive(false);
-      setPhase("LANDED");
-    };
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          bufferRef.current.push(data);
+
+          // Log every packet using spec field names
+          flightLogRef.current.push({
+            timestamp: data.timestamp,
+            altitude:  data.altitude,
+            temp:      data.temp,
+            pressure:  data.pressure,
+            humidity:  data.humidity,
+            ax:        data.ax,
+            ay:        data.ay,
+            az:        data.az,
+            gx:        data.gx,
+            gy:        data.gy,
+            gz:        data.gz,
+            light:     data.light,
+            voltage:   data.voltage,
+            current:   data.current,
+            lat:       data.lat,
+            lon:       data.lon,
+          });
+        } catch (_) {}
+      };
+
+      ws.onerror = () => {
+        setError("Cannot reach server — make sure server.py is running on port 4443");
+        setConnected(false);
+        setIsLive(false);
+        setPhase("STANDBY");
+      };
+
+      ws.onclose = () => {
+        setConnected(false);
+        setIsLive(false);
+        if (phase !== "STANDBY") setPhase("LANDED");
+      };
+    }, 100);
   };
 
   const disconnect = () => {
@@ -626,54 +532,57 @@ const validateCRC = (data) => {
     setPhase("STANDBY");
   };
 
-  // ── Throttled render — update charts at 5fps regardless of incoming rate ─
+  // ── Throttled render ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!isLive) {
-      if (renderRef.current) clearInterval(renderRef.current);
-      if (elapsedRef.current) clearInterval(elapsedRef.current);
+      clearInterval(renderRef.current);
+      clearInterval(elapsedRef.current);
       return;
     }
 
-    // Elapsed counter
-    elapsedRef.current = setInterval(() => setElapsed(e => e + 1), 200);
+    elapsedRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
 
-    // Chart update — 5 times per second (200ms)
     renderRef.current = setInterval(() => {
       if (bufferRef.current.length === 0) return;
-
-      // Take latest packet from buffer
       const data = bufferRef.current[bufferRef.current.length - 1];
       bufferRef.current = [];
 
-      // Map server.py fields to charts
+      // Altitude — only go up, never zigzag
       if (data.altitude !== undefined) {
-  const realAlt = +data.altitude.toFixed(3);
-  setAlt(prev => [...prev.slice(-(MAX_PTS - 1)), { t: "now", v: realAlt }]);
-  // Phase detection using real altitude
-  if (realAlt >= 990) setPhase("DESCENT");
-  else if (realAlt <= 2 && realAlt > 0) setPhase("LANDED");
-  else if (realAlt > 2) setPhase("ASCENT");
-}
-      if (data.temperature !== undefined)
-        setTemp(prev => [...prev.slice(-(MAX_PTS - 1)), { t: "now", v: +data.temperature.toFixed(1) }]);
-      if (data.pressure !== undefined)
-        setPressure(prev => [...prev.slice(-(MAX_PTS - 1)), { t: "now", v: +data.pressure.toFixed(1) }]);
-      if (data.humidity !== undefined)
-        setHumidity(prev => [...prev.slice(-(MAX_PTS - 1)), { t: "now", v: +data.humidity.toFixed(1) }]);
-      if (data.acceleration !== undefined) {
-        setAccelX(prev => [...prev.slice(-(MAX_PTS - 1)), { t: "now", v: +data.acceleration[0].toFixed(2) }]);
-        setAccelY(prev => [...prev.slice(-(MAX_PTS - 1)), { t: "now", v: +data.acceleration[1].toFixed(2) }]);
+        const realAlt = +data.altitude.toFixed(3);
+        setAlt(prev => {
+          const last = prev[prev.length - 1]?.v ?? 0;
+          if (realAlt >= last || prev.length < 2) {
+            return [...prev.slice(-(MAX_PTS - 1)), { t: data.timestamp || "now", v: realAlt }];
+          }
+          return prev;
+        });
+        if (realAlt >= 990) setPhase("DESCENT");
+        else if (realAlt <= 2 && realAlt > 0) setPhase("LANDED");
+        else if (realAlt > 2) setPhase("ASCENT");
       }
-      if (data["Luminous Intensity"] !== undefined)
-        setLight(prev => [...prev.slice(-(MAX_PTS - 1)), { t: "now", v: +data["Luminous Intensity"].toFixed(0) }]);
+
+      // All other sensors using correct spec field names
+      if (data.temp !== undefined)
+        setTemp(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: +data.temp.toFixed(2) }]);
+      if (data.pressure !== undefined)
+        setPressure(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: +data.pressure.toFixed(1) }]);
+      if (data.humidity !== undefined)
+        setHumidity(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: +data.humidity.toFixed(1) }]);
+      if (data.ax !== undefined)
+        setAccelX(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: +data.ax.toFixed(2) }]);
+      if (data.ay !== undefined)
+        setAccelY(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: +data.ay.toFixed(2) }]);
+      if (data.light !== undefined)
+        setLight(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: +data.light.toFixed(0) }]);
       if (data.voltage !== undefined)
-        setVoltage(prev => [...prev.slice(-(MAX_PTS - 1)), { t: "now", v: +data.voltage.toFixed(1) }]);
-      if (data.Gyro !== undefined)
-        setGyroX(prev => [...prev.slice(-(MAX_PTS - 1)), { t: "now", v: +data.Gyro[0].toFixed(2) }]);
+        setVoltage(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: +data.voltage.toFixed(2) }]);
+      if (data.gx !== undefined)
+        setGyroX(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: +data.gx.toFixed(2) }]);
       if (data.current !== undefined)
-        setCurrent(prev => [...prev.slice(-(MAX_PTS - 1)), { t: "now", v: +data.current.toFixed(1) }]);
-      if (data["GPS Lattitude"] !== undefined)
-        setGps({ lat: data["GPS Lattitude"], lon: data["GPS Longitude"] });
+        setCurrent(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: +data.current.toFixed(2) }]);
+      if (data.lat !== undefined)
+        setGps({ lat: data.lat, lon: data.lon });
 
     }, 1000);
 
@@ -683,10 +592,8 @@ const validateCRC = (data) => {
     };
   }, [isLive]);
 
-  // Cleanup on unmount
   useEffect(() => () => { if (wsRef.current) wsRef.current.close(); }, []);
 
-  // ── Latest values ─────────────────────────────────────────────────────────
   const L = {
     alt:      alt[alt.length - 1]?.v.toFixed(1),
     temp:     temp[temp.length - 1]?.v.toFixed(1),
@@ -695,38 +602,38 @@ const validateCRC = (data) => {
     accelX:   accelX[accelX.length - 1]?.v.toFixed(2),
     accelY:   accelY[accelY.length - 1]?.v.toFixed(2),
     light:    light[light.length - 1]?.v.toFixed(0),
-    voltage:  voltage[voltage.length - 1]?.v.toFixed(1),
+    voltage:  voltage[voltage.length - 1]?.v.toFixed(2),
     gyroX:    gyroX[gyroX.length - 1]?.v.toFixed(2),
-    current:  current[current.length - 1]?.v.toFixed(1),
+    current:  current[current.length - 1]?.v.toFixed(2),
   };
 
   const phaseCol = { ASCENT: C.green, DESCENT: C.accent, LANDED: C.blue, STANDBY: C.muted };
   const pCol = phaseCol[phase] || C.muted;
 
   const topCards = [
-    { label: "Altitude",    val: L.alt,      unit: "m",   color: C.green,        icon: "↑" },
-    { label: "Temperature", val: L.temp,     unit: "°C",  color: "#FF6B6B",      icon: "🌡" },
-    { label: "Pressure",    val: L.pressure, unit: "Pa",  color: C.blue,         icon: "⬤" },
-    { label: "Voltage",     val: L.voltage,  unit: "mV",  color: C.yellow,       icon: "⚡" },
+    { label: "Altitude",    val: L.alt,      unit: "m",   color: C.green,   icon: "↑" },
+    { label: "Temperature", val: L.temp,     unit: "°C",  color: "#FF6B6B", icon: "🌡" },
+    { label: "Pressure",    val: L.pressure, unit: "hPa", color: C.blue,    icon: "⬤" },
+    { label: "Voltage",     val: L.voltage,  unit: "V",   color: C.yellow,  icon: "⚡" },
   ];
 
   const subCharts = [
-    { label: "Temperature",       data: temp,     color: "#FF6B6B",   unit: "°C",  val: L.temp     },
-    { label: "Pressure",          data: pressure, color: C.blue,      unit: "Pa",  val: L.pressure },
-    { label: "Humidity",          data: humidity, color: C.cyan,      unit: "%",   val: L.humidity },
-    { label: "Accel X",           data: accelX,   color: C.yellow,    unit: "",    val: L.accelX   },
-    { label: "Accel Y",           data: accelY,   color: C.accentSoft,unit: "",    val: L.accelY   },
-    { label: "Light Intensity",   data: light,    color: "#FFD700",   unit: "lux", val: L.light    },
-    { label: "Voltage",           data: voltage,  color: C.yellow,    unit: "mV",  val: L.voltage  },
-    { label: "Gyro X",            data: gyroX,    color: C.purple,    unit: "",    val: L.gyroX    },
-    { label: "Current",           data: current,  color: C.green,     unit: "mA",  val: L.current  },
+    { label: "Temperature",     data: temp,     color: "#FF6B6B",    unit: "°C",  val: L.temp     },
+    { label: "Pressure",        data: pressure, color: C.blue,       unit: "hPa", val: L.pressure },
+    { label: "Humidity",        data: humidity, color: C.cyan,       unit: "%",   val: L.humidity },
+    { label: "Accel X",         data: accelX,   color: C.yellow,     unit: "g",   val: L.accelX   },
+    { label: "Accel Y",         data: accelY,   color: C.accentSoft, unit: "g",   val: L.accelY   },
+    { label: "Light Intensity", data: light,    color: "#FFD700",    unit: "lux", val: L.light    },
+    { label: "Voltage",         data: voltage,  color: C.yellow,     unit: "V",   val: L.voltage  },
+    { label: "Gyro X",          data: gyroX,    color: C.purple,     unit: "°/s", val: L.gyroX    },
+    { label: "Current",         data: current,  color: C.green,      unit: "A",   val: L.current  },
   ];
 
   return (
     <section style={{ padding: "90px clamp(14px,4vw,60px)" }}>
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>
 
-        {/* ── Header ── */}
+        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16, marginBottom: 36 }}>
           <div>
             <SLabel text="Live Telemetry Dashboard" />
@@ -734,13 +641,12 @@ const validateCRC = (data) => {
               Mission <span style={{ color: C.accent }}>Data Stream</span>
             </h2>
             <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 14, color: C.muted }}>
-              Real-time sensor data · WebSocket · Port 4443 · 50 Hz incoming · 5 Hz rendered
+              Real-time sensor data · WebSocket · Port 4443 · 1 Hz
             </p>
           </div>
 
           {/* Controls */}
           <div style={{ display: "flex", flexDirection: "column", gap: 9, minWidth: 220 }}>
-            {/* Status chip */}
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", background: C.bgCard, border: `1px solid ${pCol}44`, borderRadius: 8 }}>
               <div className="live-dot" style={{ width: 7, height: 7, borderRadius: "50%", background: connected ? pCol : C.muted, flexShrink: 0 }} />
               <span style={{ fontFamily: "'Space Mono',monospace", fontSize: 10, color: connected ? pCol : C.muted, letterSpacing: 1 }}>
@@ -748,38 +654,26 @@ const validateCRC = (data) => {
               </span>
               <div style={{ marginLeft: "auto", fontFamily: "'Space Mono',monospace", fontSize: 9, color: C.muted }}>T+{elapsed}s</div>
             </div>
-
-            {/* Buttons */}
             <div style={{ display: "flex", gap: 8 }}>
               {!connected ? (
-                <button onClick={connect} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.green}88`, background: "transparent", color: C.green, fontFamily: "'Space Mono',monospace", fontSize: 9, cursor: "pointer", letterSpacing: .8 }}>
-                  ▶ Connect
-                </button>
+                <button onClick={connect} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.green}88`, background: "transparent", color: C.green, fontFamily: "'Space Mono',monospace", fontSize: 9, cursor: "pointer", letterSpacing: .8 }}>▶ Connect</button>
               ) : (
-                <button onClick={disconnect} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.red}88`, background: "transparent", color: C.red, fontFamily: "'Space Mono',monospace", fontSize: 9, cursor: "pointer", letterSpacing: .8 }}>
-                  ■ Disconnect
-                </button>
+                <button onClick={disconnect} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.red}88`, background: "transparent", color: C.red, fontFamily: "'Space Mono',monospace", fontSize: 9, cursor: "pointer", letterSpacing: .8 }}>■ Disconnect</button>
               )}
-              <button onClick={doReset} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontFamily: "'Space Mono',monospace", fontSize: 9, cursor: "pointer", letterSpacing: .8 }}>
-                ↺ Reset
-              </button>  
-
-              <button onClick={downloadCSV} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.blue}88`, background: "transparent", color: C.blue, fontFamily: "'Space Mono',monospace", fontSize: 9, cursor: "pointer", letterSpacing: .8 }}>
-              ↓ Export CSV
-              </button> 
-
+              <button onClick={doReset} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontFamily: "'Space Mono',monospace", fontSize: 9, cursor: "pointer", letterSpacing: .8 }}>↺ Reset</button>
+              <button onClick={downloadCSV} style={{ flex: 1, padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.blue}88`, background: "transparent", color: C.blue, fontFamily: "'Space Mono',monospace", fontSize: 9, cursor: "pointer", letterSpacing: .8 }}>↓ CSV</button>
             </div>
           </div>
         </div>
 
-        {/* ── Error banner ── */}
+        {/* Error banner */}
         {error && (
           <div style={{ marginBottom: 20, padding: "12px 16px", background: C.red + "12", border: `1px solid ${C.red}44`, borderRadius: 8, fontFamily: "'Space Mono',monospace", fontSize: 11, color: C.red }}>
             ⚠ {error}
           </div>
         )}
 
-        {/* ── Not connected placeholder ── */}
+        {/* Not connected placeholder */}
         {!connected && !error && (
           <div style={{ textAlign: "center", padding: "60px 20px", background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, marginBottom: 24 }}>
             <div style={{ fontSize: 40, marginBottom: 16 }}>🛰️</div>
@@ -793,10 +687,10 @@ const validateCRC = (data) => {
           </div>
         )}
 
-        {/* ── Live data UI (only shown when connected) ── */}
+        {/* Live data */}
         {connected && (
           <>
-            {/* Top summary cards */}
+            {/* Summary cards */}
             <div className="tele-top-row" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
               {topCards.map(s => (
                 <HoverCard key={s.label} glowColor={s.color + "55"} style={{ padding: "14px 15px" }}>
@@ -831,7 +725,7 @@ const validateCRC = (data) => {
               </div>
             )}
 
-            {/* Main Altitude chart */}
+            {/* Main altitude chart */}
             <HoverCard glowColor={C.green + "44"} style={{ padding: "22px 22px 14px", marginBottom: 18 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
                 <div>
@@ -846,29 +740,26 @@ const validateCRC = (data) => {
               <LineChart data={alt} color={C.green} unit="m" label="Altitude" height={180} />
             </HoverCard>
 
-            {/* Secondary charts 3-column */}
+            {/* Secondary charts */}
             <div className="tele-secondary" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
               {subCharts.map(ch => (
                 <HoverCard key={ch.label} glowColor={ch.color + "44"} style={{ padding: "16px 16px 10px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                    <div>
-                      <div style={{ fontFamily: "'Space Mono',monospace", fontSize: 9, color: C.muted, letterSpacing: 1.4, textTransform: "uppercase", marginBottom: 3 }}>{ch.label}</div>
-                      <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 20, fontWeight: 700, color: ch.color }}>{ch.val}<span style={{ fontSize: 11, color: C.muted, marginLeft: 3 }}>{ch.unit}</span></div>
-                    </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontFamily: "'Space Mono',monospace", fontSize: 9, color: C.muted, letterSpacing: 1.4, textTransform: "uppercase", marginBottom: 3 }}>{ch.label}</div>
+                    <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 20, fontWeight: 700, color: ch.color }}>{ch.val}<span style={{ fontSize: 11, color: C.muted, marginLeft: 3 }}>{ch.unit}</span></div>
                   </div>
                   <LineChart data={ch.data} color={ch.color} unit={ch.unit} label={ch.label} height={140} />
                 </HoverCard>
               ))}
             </div>
 
-            {/* Raw packet readout */}
+            {/* Raw packet */}
             <div style={{ marginTop: 16, background: C.bgCardAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 16px", fontFamily: "'Space Mono',monospace", fontSize: 11, color: C.green, overflowX: "auto", whiteSpace: "nowrap" }}>
               <span style={{ color: C.muted, marginRight: 10 }}>PACKET ›</span>
-              ALT:{L.alt}m · TMP:{L.temp}°C · PRE:{L.pressure}Pa · HUM:{L.humidity}% · AX:{L.accelX} · AY:{L.accelY} · LUX:{L.light} · V:{L.voltage}mV · GX:{L.gyroX} · I:{L.current}mA · T+{elapsed}s · {phase}
+              ALT:{L.alt}m · TMP:{L.temp}°C · PRE:{L.pressure}hPa · HUM:{L.humidity}% · AX:{L.accelX}g · AY:{L.accelY}g · LUX:{L.light} · V:{L.voltage}V · GX:{L.gyroX}°/s · I:{L.current}A · T+{elapsed}s · {phase}
             </div>
           </>
         )}
-
       </div>
     </section>
   );
