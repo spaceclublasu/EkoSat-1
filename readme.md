@@ -1,11 +1,12 @@
 # 🚀 CanSat Groundstation telemetry software 
-# overview
+# Repository overview
 This repository contains the avionics telecommunications software used for the entire cansat project.
+### Software overview 
 This software makes use of a distributed systems design architecture in order to improve fault tolerance.
 The software consists of two parts:
-1. ### A Cansat simulation server program###:
-   This is a lightweight **asynchronous telemetry simulation program** that mimics how a CanSat groundstation computer transmits environmental and motion data to two independent client computers for processing ,storage and visualization using WebSockets and asyncio in real time. This program is only used for pre-hardware integration software development and testing. It will be replaced by a program, which will be added later, that is native to the Raspberry pico-W computer during hardware integration.
-   # client programmes
+1. ### A Cansat simulation server program(server.py) ###:
+   This is a lightweight **asynchronous telemetry simulation program** that mimics how a CanSat groundstation computer transmits environmental and motion data at adjustable frequencies (1-10hz) to two independent client computers for processing,storage and visualization using WebSockets and asyncio in real time. This program is only used for pre-hardware integration software development and testing. It will be replaced by a program, which will be added later, that is native to the Raspberry pico-W computer during hardware integration.
+   # client programmes(client.py and reactjs frontend)
    These are separate programs running on different terminals or PCs used for data visualization, storage and analysis
 .
 
@@ -18,21 +19,7 @@ This project is designed to help understand:
 
 ---
 
-# 📡 Overview
-
-The system consists of two components:
-
-### 🛰️ Server (`server.py`)
-
-Simulates a CanSat transmitting telemetry data at high frequency.
-
-### 🖥️ Client (`client.py`)
-
-Acts as a ground station receiving and displaying telemetry data.
-
----
-
-# ⚙️ Features
+# ⚙️ software Features
 
 * Real-time telemetry streaming using **WebSockets**
 * Asynchronous architecture using `asyncio`
@@ -50,8 +37,8 @@ Acts as a ground station receiving and displaying telemetry data.
   * Continuous data broadcast at a maximum frequency of 10Hz
 
 2.  # 🖥️ Client computers or scripts(`client.py`): These clients will independently handle
-   a. data visualization
-   b. data storage
+   a. data visualization (with reactjs)
+   b. data storage(with asyncpg and postgresql)
 
 This project is designed to help students and young aerospace professionals understand:
 
