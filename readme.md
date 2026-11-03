@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # 🚀 CanSat Groundstation telemetry software 
 # overview
 This repository contains the avionics telecommunications software used for the entire cansat project.
@@ -6,8 +5,7 @@ This software makes use of a distributed systems design architecture in order to
 The software consists of two parts:
 1. ### A Cansat simulation server program###:
    This is a lightweight **asynchronous telemetry simulation program** that mimics how a CanSat groundstation computer transmits environmental and motion data to two independent client computers for processing ,storage and visualization using WebSockets and asyncio in real time. This program is only used for pre-hardware integration software development and testing. It will be replaced by a program, which will be added later, that is native to the Raspberry pico-W computer during hardware integration.
-=======
-# 🚀 CanSat Telemetry Simulation Server
+   # 🚀 CanSat Telemetry Simulation Server
 
 A lightweight **asynchronous telemetry simulation system** that mimics how a CanSat transmits environmental and motion data to a ground station using WebSockets.
 
@@ -237,6 +235,3 @@ SpaceClubs -Lagos State University
 # 📜 License
 
 This project is open-source and available for educational use.
-
-
-
