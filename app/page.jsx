@@ -378,10 +378,6 @@ function SystemsSection() {
 
 
 // ─── SECTION: LIVE TELEMETRY ─────────────────────────────────────────────────
-// Replace your entire TelemetrySection function with this one.
-// Make sure your server.py is running on port 4443 before testing.
-
-
 function TelemetrySection() {
   const flightLogRef = useRef([]);
   const [isLive, setIsLive] = useState(false);
@@ -432,13 +428,14 @@ function TelemetrySection() {
   const downloadCSV = () => {
     if (flightLogRef.current.length === 0) return;
     const headers = [
-      "Timestamp","Altitude (m)","Temperature (°C)","Pressure (hPa)",
+      "Timestamp","Packet ID","Altitude (m)","Temperature (°C)","Pressure (hPa)",
       "Humidity (%)","Accel X (g)","Accel Y (g)","Accel Z (g)",
-      "Gyro X","Gyro Y","Gyro Z","Light (lux)",
+      "Gyro X (°/s)","Gyro Y (°/s)","Gyro Z (°/s)","Light (lux)",
       "Voltage (V)","Current (A)","GPS Latitude","GPS Longitude",
     ].join(",");
     const rows = flightLogRef.current.map(row => [
       row.timestamp ?? "",
+      row.packetId ?? "",
       row.altitude?.toFixed(3) ?? "",
       row.temp ?? "",
       row.pressure ?? "",
@@ -473,8 +470,9 @@ function TelemetrySection() {
     setConnected(false);
 
     setTimeout(() => {
-      const wsHost = window.location.hostname;
+      const wsHost = window.location.hostname || "localhost";
       const ws = new WebSocket(`ws://${wsHost}:4443`);
+      ws.binaryType = "arraybuffer"; // CRITICAL: Receive binary packets from server.py
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -485,29 +483,78 @@ function TelemetrySection() {
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-          bufferRef.current.push(data);
+          if (!(event.data instanceof ArrayBuffer)) return;
+          const view = new DataView(event.data);
+          let offset = 0;
 
-          // Log every packet using spec field names
-          flightLogRef.current.push({
-            timestamp: data.timestamp,
-            altitude:  data.altitude,
-            temp:      data.temp,
-            pressure:  data.pressure,
-            humidity:  data.humidity,
-            ax:        data.ax,
-            ay:        data.ay,
-            az:        data.az,
-            gx:        data.gx,
-            gy:        data.gy,
-            gz:        data.gz,
-            light:     data.light,
-            voltage:   data.voltage,
-            current:   data.current,
-            lat:       data.lat,
-            lon:       data.lon,
-          });
-        } catch (_) {}
+          // Unpack binary structure matching server.py pack format:
+          // "<2s I I i i h h H B H h h h h h h H H " + "<H" (CRC)
+          const header = String.fromCharCode(view.getUint8(0), view.getUint8(1));
+          offset += 2;
+          const packetId = view.getUint32(offset, true);
+          offset += 4;
+          const timestampNum = view.getUint32(offset, true);
+          offset += 4;
+          const latRaw = view.getInt32(offset, true);
+          offset += 4;
+          const lonRaw = view.getInt32(offset, true);
+          offset += 4;
+          const altVal = view.getInt16(offset, true);
+          offset += 2;
+          const tempVal = view.getInt16(offset, true);
+          offset += 2;
+          const pressVal = view.getUint16(offset, true);
+          offset += 2;
+          const humVal = view.getUint8(offset);
+          offset += 1;
+          const luxVal = view.getUint16(offset, true);
+          offset += 2;
+          const ax = view.getInt16(offset, true) / 1000.0;
+          offset += 2;
+          const ay = view.getInt16(offset, true) / 1000.0;
+          offset += 2;
+          const az = view.getInt16(offset, true) / 1000.0;
+          offset += 2;
+          const gx = view.getInt16(offset, true);
+          offset += 2;
+          const gy = view.getInt16(offset, true);
+          offset += 2;
+          const gz = view.getInt16(offset, true);
+          offset += 2;
+          const volt = view.getUint16(offset, true) / 1000.0;
+          offset += 2;
+          const curr = view.getUint16(offset, true) / 1000.0;
+          offset += 2;
+          const crc = view.getUint16(offset, true);
+          offset += 2;
+
+          const timestampStr = new Date().toLocaleTimeString();
+
+          const parsedData = {
+            timestamp: timestampStr,
+            packetId,
+            altitude: altVal,
+            temp: tempVal,
+            pressure: pressVal,
+            humidity: humVal,
+            ax,
+            ay,
+            az,
+            gx,
+            gy,
+            gz,
+            light: luxVal,
+            voltage: volt,
+            current: curr,
+            lat: (latRaw / 10000000).toFixed(6),
+            lon: (lonRaw / 10000000).toFixed(6),
+          };
+
+          bufferRef.current.push(parsedData);
+          flightLogRef.current.push(parsedData);
+        } catch (err) {
+          console.error("Failed to decode binary packet:", err);
+        }
       };
 
       ws.onerror = () => {
@@ -532,7 +579,7 @@ function TelemetrySection() {
     setPhase("STANDBY");
   };
 
-  // ── Throttled render ──────────────────────────────────────────────────────
+  // ── Throttled UI Render Loop ──────────────────────────────────────────────
   useEffect(() => {
     if (!isLive) {
       clearInterval(renderRef.current);
@@ -547,22 +594,16 @@ function TelemetrySection() {
       const data = bufferRef.current[bufferRef.current.length - 1];
       bufferRef.current = [];
 
-      // Altitude — only go up, never zigzag
+      // Altitude tracking (handles both ascent and descent correctly)
       if (data.altitude !== undefined) {
         const realAlt = +data.altitude.toFixed(3);
-        setAlt(prev => {
-          const last = prev[prev.length - 1]?.v ?? 0;
-          if (realAlt >= last || prev.length < 2) {
-            return [...prev.slice(-(MAX_PTS - 1)), { t: data.timestamp || "now", v: realAlt }];
-          }
-          return prev;
-        });
-        if (realAlt >= 990) setPhase("DESCENT");
-        else if (realAlt <= 2 && realAlt > 0) setPhase("LANDED");
-        else if (realAlt > 2) setPhase("ASCENT");
+        setAlt(prev => [...prev.slice(-(MAX_PTS - 1)), { t: data.timestamp || "now", v: realAlt }]);
+        
+        if (realAlt >= 990 && phase !== "DESCENT" && phase !== "LANDED") setPhase("DESCENT");
+        else if (realAlt <= 2 && phase === "DESCENT") setPhase("LANDED");
+        else if (phase === "STANDBY" && realAlt > 0) setPhase("ASCENT");
       }
 
-      // All other sensors using correct spec field names
       if (data.temp !== undefined)
         setTemp(prev => [...prev.slice(-(MAX_PTS-1)), { t: data.timestamp || "now", v: +data.temp.toFixed(2) }]);
       if (data.pressure !== undefined)
@@ -590,7 +631,7 @@ function TelemetrySection() {
       clearInterval(renderRef.current);
       clearInterval(elapsedRef.current);
     };
-  }, [isLive]);
+  }, [isLive, phase]);
 
   useEffect(() => () => { if (wsRef.current) wsRef.current.close(); }, []);
 
@@ -641,7 +682,7 @@ function TelemetrySection() {
               Mission <span style={{ color: C.accent }}>Data Stream</span>
             </h2>
             <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 14, color: C.muted }}>
-              Real-time sensor data · WebSocket · Port 4443 · 1 Hz
+              Binary WebSocket Stream · Port 4443 · 1 Hz
             </p>
           </div>
 
@@ -687,10 +728,9 @@ function TelemetrySection() {
           </div>
         )}
 
-        {/* Live data */}
+        {/* Live data display */}
         {connected && (
           <>
-            {/* Summary cards */}
             <div className="tele-top-row" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
               {topCards.map(s => (
                 <HoverCard key={s.label} glowColor={s.color + "55"} style={{ padding: "14px 15px" }}>
@@ -705,7 +745,6 @@ function TelemetrySection() {
               ))}
             </div>
 
-            {/* GPS row */}
             {gps.lat !== null && (
               <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
                 <div style={{ flex: 1, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 16px", display: "flex", alignItems: "center", gap: 10 }}>
@@ -725,7 +764,6 @@ function TelemetrySection() {
               </div>
             )}
 
-            {/* Main altitude chart */}
             <HoverCard glowColor={C.green + "44"} style={{ padding: "22px 22px 14px", marginBottom: 18 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
                 <div>
@@ -740,7 +778,6 @@ function TelemetrySection() {
               <LineChart data={alt} color={C.green} unit="m" label="Altitude" height={180} />
             </HoverCard>
 
-            {/* Secondary charts */}
             <div className="tele-secondary" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
               {subCharts.map(ch => (
                 <HoverCard key={ch.label} glowColor={ch.color + "44"} style={{ padding: "16px 16px 10px" }}>
@@ -753,7 +790,6 @@ function TelemetrySection() {
               ))}
             </div>
 
-            {/* Raw packet */}
             <div style={{ marginTop: 16, background: C.bgCardAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 16px", fontFamily: "'Space Mono',monospace", fontSize: 11, color: C.green, overflowX: "auto", whiteSpace: "nowrap" }}>
               <span style={{ color: C.muted, marginRight: 10 }}>PACKET ›</span>
               ALT:{L.alt}m · TMP:{L.temp}°C · PRE:{L.pressure}hPa · HUM:{L.humidity}% · AX:{L.accelX}g · AY:{L.accelY}g · LUX:{L.light} · V:{L.voltage}V · GX:{L.gyroX}°/s · I:{L.current}A · T+{elapsed}s · {phase}
